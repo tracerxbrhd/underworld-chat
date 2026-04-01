@@ -32,6 +32,14 @@ That is exactly how `docker-compose.prod.yml` is prepared.
 5. Add the host Nginx site for your subdomain.
 6. Issue TLS certificates with Certbot or your usual flow.
 
+Important MinIO note for the current stack:
+
+- `MINIO_ROOT_PASSWORD` must be at least 8 characters long;
+- keep `S3_ACCESS_KEY` equal to `MINIO_ROOT_USER`;
+- keep `S3_SECRET_KEY` equal to `MINIO_ROOT_PASSWORD`.
+
+The current production setup uses the same MinIO credentials for bootstrap and backend storage access.
+
 ## Basic server prerequisites
 
 For Ubuntu 24.04, the safest path is Docker's official Ubuntu repository:
