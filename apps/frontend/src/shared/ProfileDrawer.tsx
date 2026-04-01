@@ -9,7 +9,7 @@ const fallbackAvatar =
 type ProfileDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (payload: Partial<ProfilePayload>) => Promise<void> | void;
+  onSave: (payload: Partial<ProfilePayload>) => Promise<unknown> | unknown;
   profile: ProfilePayload;
 };
 

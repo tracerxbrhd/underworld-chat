@@ -346,7 +346,9 @@ export function WorkspacePage() {
         <ProfileDrawer
           isOpen={isProfileOpen}
           onClose={() => setProfileOpen(false)}
-          onSave={(payload) => profileMutation.mutateAsync({ ...currentProfile, ...payload })}
+          onSave={async (payload) => {
+            await profileMutation.mutateAsync({ ...currentProfile, ...payload });
+          }}
           profile={currentProfile}
         />
       ) : null}
