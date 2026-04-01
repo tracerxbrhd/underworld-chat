@@ -646,10 +646,6 @@ img {
   transition: grid-template-columns 220ms ease;
 }
 
-.workspace-page:not(.dialogs-open) .workspace-grid {
-  grid-template-columns: 0 minmax(0, 1fr);
-}
-
 .workspace-grid-entering .dialogs-panel,
 .workspace-grid-entering .chat-panel {
   opacity: 0;
@@ -676,13 +672,6 @@ img {
     transform 220ms ease,
     opacity 180ms ease,
     margin 220ms ease;
-}
-
-.workspace-page:not(.dialogs-open) .dialogs-panel {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-28px);
-  margin-left: -18px;
 }
 
 .panel-heading {
@@ -1078,6 +1067,19 @@ img {
 
   .header-actions {
     flex-wrap: wrap;
+  }
+}
+
+@media (min-width: 901px) {
+  .workspace-page:not(.dialogs-open) .workspace-grid {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .workspace-page:not(.dialogs-open) .dialogs-panel {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-28px);
+    margin-left: -18px;
   }
 }
 
