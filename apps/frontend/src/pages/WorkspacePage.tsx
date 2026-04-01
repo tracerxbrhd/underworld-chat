@@ -37,6 +37,49 @@ function sortChats(chats: ChatPayload[]): ChatPayload[] {
   });
 }
 
+function CloseGlyph() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path
+        d="M6 6L18 18M18 6L6 18"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function PlaneGlyph() {
+  return (
+    <svg aria-hidden="true" fill="none" height="18" viewBox="0 0 24 24" width="18">
+      <path
+        d="M21 3L10 14"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M21 3L14 21L10 14L3 10L21 3Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function shouldAutoCloseDialogs() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.innerWidth <= 900;
+}
+
 export function WorkspacePage() {
   const touchGestureRef = useRef<{
     mode: "open" | "close" | null;
@@ -53,7 +96,13 @@ export function WorkspacePage() {
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [peerProfileId, setPeerProfileId] = useState<string | null>(null);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
-  const [isDialogsOpen, setDialogsOpen] = useState(false);
+  const [isDialogsOpen, setDialogsOpen] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+
+    return window.innerWidth > 900;
+  });
   const [draftMessage, setDraftMessage] = useState("");
   const [searchValue, setSearchValue] = useState("");
   const [showLaunchOverlay, setShowLaunchOverlay] = useState(() => {
@@ -205,7 +254,9 @@ export function WorkspacePage() {
         return [chat, ...current];
       });
       setSelectedChatId(chat.id);
-      setDialogsOpen(false);
+      if (shouldAutoCloseDialogs()) {
+        setDialogsOpen(false);
+      }
       setSearchValue("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["chats", locale, accessToken] }),
@@ -248,19 +299,6 @@ export function WorkspacePage() {
       window.removeEventListener("keydown", handleEscape);
     };
   }, [isDialogsOpen]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth > 900) {
-        setDialogsOpen(false);
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !showLaunchOverlay) {
@@ -492,7 +530,9 @@ export function WorkspacePage() {
                 }
                 onClick={() => {
                   setSelectedChatId(chat.id);
-                  setDialogsOpen(false);
+                  if (shouldAutoCloseDialogs()) {
+                    setDialogsOpen(false);
+                  }
                   setSearchValue("");
                 }}
                 style={shouldAnimateChatRows ? { animationDelay: `${160 + index * 78}ms` } : undefined}
@@ -523,7 +563,9 @@ export function WorkspacePage() {
                   key={user.id}
                   className="dialog-row search-user-row"
                   onClick={() => {
-                    setDialogsOpen(false);
+                    if (shouldAutoCloseDialogs()) {
+                      setDialogsOpen(false);
+                    }
                     createChatMutation.mutate(user.public_id);
                   }}
                   type="button"
@@ -542,21 +584,28 @@ export function WorkspacePage() {
           {selectedChat ? (
             <>
               <div className="chat-header">
-                <div>
-                  <h2>{selectedChat.title}</h2>
-                  <p className="muted">
-                    {selectedChat.is_personal_notes ? copy.workspace.notesSubtitle : selectedChat.kind}
-                  </p>
-                </div>
+                {peerMember ? (
+                  <button className="chat-title-button" onClick={() => setPeerProfileId(peerMember.public_id)} type="button">
+                    <span className="chat-title-text">{selectedChat.title}</span>
+                    <span className="muted chat-title-subtitle">@{peerMember.public_id}</span>
+                  </button>
+                ) : (
+                  <div className="chat-title-block">
+                    <h2>{selectedChat.title}</h2>
+                    <p className="muted">
+                      {selectedChat.is_personal_notes ? copy.workspace.notesSubtitle : selectedChat.kind}
+                    </p>
+                  </div>
+                )}
 
                 <div className="chat-header-side">
-                  {peerMember ? (
-                    <button className="ghost-button" onClick={() => setPeerProfileId(peerMember.public_id)} type="button">
-                      {copy.common.profile}
-                    </button>
-                  ) : null}
-                  <button className="ghost-button" onClick={() => setSelectedChatId(null)} type="button">
-                    {copy.workspace.closeDialog}
+                  <button
+                    aria-label={copy.workspace.closeDialog}
+                    className="icon-button chat-close-button"
+                    onClick={() => setSelectedChatId(null)}
+                    type="button"
+                  >
+                    <CloseGlyph />
                   </button>
                   <span className="status-pill authenticated">{copy.workspace.healthValue}</span>
                 </div>
@@ -601,12 +650,13 @@ export function WorkspacePage() {
                   value={draftMessage}
                 />
                 <button
-                  className="primary-button"
+                  aria-label={copy.workspace.composerAction}
+                  className="composer-send-button"
                   disabled={!draftMessage.trim() || sendMutation.isPending}
                   onClick={() => sendMutation.mutate()}
                   type="button"
                 >
-                  {sendMutation.isPending ? copy.common.loading : copy.workspace.composerAction}
+                  <PlaneGlyph />
                 </button>
               </footer>
               {sendError ? <p className="error composer-error">{copy.workspace.sendError}</p> : null}
