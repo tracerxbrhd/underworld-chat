@@ -34,16 +34,27 @@
 
 ## Базовые зависимости на сервере
 
-Если Docker и Nginx еще не установлены:
+Для Ubuntu 24.04 самый надежный путь сейчас — официальный Docker-репозиторий:
 
 ```bash
 sudo apt update
-sudo apt install -y docker.io docker-compose-plugin nginx certbot python3-certbot-nginx git
+sudo apt install -y ca-certificates curl gnupg nginx certbot python3-certbot-nginx git
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo ${UBUNTU_CODENAME}) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo systemctl enable --now docker nginx
 sudo usermod -aG docker $USER
 ```
 
 После добавления пользователя в группу `docker` нужно один раз перелогиниться.
+
+Если хочешь использовать именно пакеты Ubuntu, для Noble 24.04 доступен `docker-compose-v2`, но смешивать Ubuntu-пакеты Docker и официальный Docker repo не стоит. Лучше выбрать один путь и держаться его.
 
 ## Минимальный набор команд
 

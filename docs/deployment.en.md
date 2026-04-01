@@ -34,16 +34,27 @@ That is exactly how `docker-compose.prod.yml` is prepared.
 
 ## Basic server prerequisites
 
-If Docker and Nginx are not installed yet:
+For Ubuntu 24.04, the safest path is Docker's official Ubuntu repository:
 
 ```bash
 sudo apt update
-sudo apt install -y docker.io docker-compose-plugin nginx certbot python3-certbot-nginx git
+sudo apt install -y ca-certificates curl gnupg nginx certbot python3-certbot-nginx git
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo ${UBUNTU_CODENAME}) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo systemctl enable --now docker nginx
 sudo usermod -aG docker $USER
 ```
 
 Log out and back in once after adding your user to the `docker` group.
+
+If you prefer Ubuntu's own packages, `docker-compose-v2` is also available for Noble 24.04, but mixing Ubuntu-packaged Docker with Docker's official packages is a bad idea. Pick one route and keep it consistent.
 
 ## Minimal commands
 
