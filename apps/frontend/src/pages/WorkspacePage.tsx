@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { type TouchEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -38,6 +38,15 @@ function sortChats(chats: ChatPayload[]): ChatPayload[] {
 }
 
 export function WorkspacePage() {
+  const touchGestureRef = useRef<{
+    mode: "open" | "close" | null;
+    startX: number;
+    startY: number;
+  }>({
+    mode: null,
+    startX: 0,
+    startY: 0,
+  });
   const queryClient = useQueryClient();
   const { copy, locale } = useI18n();
   const { accessToken, clearAuth, profile, setNotesChannelId, setProfile } = useSessionStore();
@@ -241,6 +250,19 @@ export function WorkspacePage() {
   }, [isDialogsOpen]);
 
   useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 900) {
+        setDialogsOpen(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined" || !showLaunchOverlay) {
       return;
     }
@@ -304,8 +326,67 @@ export function WorkspacePage() {
     };
   }, [accessToken, locale, queryClient]);
 
+  const handleTouchStart = (event: TouchEvent<HTMLElement>) => {
+    if (typeof window === "undefined" || window.innerWidth > 900) {
+      touchGestureRef.current.mode = null;
+      return;
+    }
+
+    const touch = event.touches[0];
+    if (!touch) {
+      return;
+    }
+
+    touchGestureRef.current.startX = touch.clientX;
+    touchGestureRef.current.startY = touch.clientY;
+
+    if (isDialogsOpen && touch.clientX <= Math.min(window.innerWidth * 0.86, 360)) {
+      touchGestureRef.current.mode = "close";
+      return;
+    }
+
+    if (!isDialogsOpen && touch.clientX <= 28) {
+      touchGestureRef.current.mode = "open";
+      return;
+    }
+
+    touchGestureRef.current.mode = null;
+  };
+
+  const handleTouchEnd = (event: TouchEvent<HTMLElement>) => {
+    const gesture = touchGestureRef.current;
+    if (!gesture.mode || typeof window === "undefined" || window.innerWidth > 900) {
+      touchGestureRef.current.mode = null;
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    if (!touch) {
+      touchGestureRef.current.mode = null;
+      return;
+    }
+
+    const deltaX = touch.clientX - gesture.startX;
+    const deltaY = touch.clientY - gesture.startY;
+    const isHorizontal = Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 54;
+
+    if (gesture.mode === "open" && isHorizontal && deltaX > 0) {
+      setDialogsOpen(true);
+    }
+
+    if (gesture.mode === "close" && isHorizontal && deltaX < 0) {
+      setDialogsOpen(false);
+    }
+
+    touchGestureRef.current.mode = null;
+  };
+
   return (
-    <section className={isDialogsOpen ? "workspace-page dialogs-open" : "workspace-page"}>
+    <section
+      className={isDialogsOpen ? "workspace-page dialogs-open" : "workspace-page"}
+      onTouchEnd={handleTouchEnd}
+      onTouchStart={handleTouchStart}
+    >
       <MatrixRain />
 
       {showLaunchOverlay ? (

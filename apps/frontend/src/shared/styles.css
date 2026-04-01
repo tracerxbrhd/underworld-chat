@@ -1044,9 +1044,11 @@ img {
   }
 
   .dialogs-overlay {
+    display: block;
     position: fixed;
     inset: 0;
     z-index: 18;
+    padding: 0;
     border: none;
     background: rgba(0, 0, 0, 0.5);
     opacity: 0;
@@ -1067,11 +1069,15 @@ img {
     width: min(86vw, 360px);
     height: 100vh;
     border-radius: 0 24px 24px 0;
+    visibility: hidden;
+    pointer-events: none;
     transform: translateX(calc(-100% - 20px));
     transition: transform 220ms ease;
   }
 
   .workspace-page.dialogs-open .dialogs-panel {
+    visibility: visible;
+    pointer-events: auto;
     transform: translateX(0);
   }
 
