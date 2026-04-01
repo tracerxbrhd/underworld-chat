@@ -49,3 +49,5 @@ This project is released under the Apache License 2.0 with a `NOTICE` file that 
 
 - Production compose: `docker-compose.prod.yml`
 - Server guide: `docs/deployment.en.md`
+- Ubuntu 24 bootstrap script: `scripts/bootstrap-ubuntu-24.sh`
+- Full production teardown script: `scripts/destroy-prod.sh`

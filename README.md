@@ -55,3 +55,4 @@ README.ru.md
 - [Русский README](./README.ru.md)
 - [Architecture Index](./docs/architecture.md)
 - [Deployment Index](./docs/deployment.md)
+- Fresh Ubuntu 24 deployment is now the default production path

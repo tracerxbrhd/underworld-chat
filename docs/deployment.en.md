@@ -1,147 +1,166 @@
 # Deployment Guide
 
-## Will it coexist with another site on the same dedicated server?
+## Recommended setup
 
-Yes, if you keep the boundaries clean:
+This repository is now primarily prepared for a completely clean Ubuntu 24 server that runs only Underworld Chat.
 
-- use a separate subdomain such as `chat.example.com`;
-- bind the Docker web container to `127.0.0.1:${APP_HTTP_PORT}` instead of `0.0.0.0:80`;
-- let the host Nginx reverse-proxy that subdomain to the container port;
-- keep a distinct Compose project name such as `underworld-chat-prod`.
+The simplest production path is:
 
-That is exactly how `docker-compose.prod.yml` is prepared.
+- install Docker on a fresh Ubuntu machine;
+- start the stack with `docker compose`;
+- publish the app directly on host port `80`;
+- open the service by the server IP;
+- if you want to swap projects later, tear the stack down and deploy another one.
 
-## Files prepared for production
+In this mode you do not need a separate host Nginx layer: the production stack already ships with its own Nginx container.
+
+## Files prepared for this flow
 
 - `docker-compose.prod.yml`
 - `.env.production.example`
+- `scripts/bootstrap-ubuntu-24.sh`
+- `scripts/deploy-prod.sh`
+- `scripts/update-prod.sh`
+- `scripts/destroy-prod.sh`
 - `apps/backend/Dockerfile.prod`
 - `infra/web/Dockerfile.prod`
 - `infra/nginx/app.prod.conf`
-- `infra/deploy/nginx-site.example.conf`
-- `infra/deploy/underworld-chat.service.example`
-- `scripts/deploy-prod.sh`
-- `scripts/update-prod.sh`
 
-## Server steps
+## Quick path for a fresh Ubuntu 24 server
 
-1. Clone the repository on the server.
-2. Copy `.env.production.example` to `.env.production`.
-3. Fill in real secrets, domain, and ports.
-4. Build and start the stack.
-5. Add the host Nginx site for your subdomain.
-6. Issue TLS certificates with Certbot or your usual flow.
+### 1. Install dependencies
 
-Important MinIO note for the current stack:
-
-- `MINIO_ROOT_PASSWORD` must be at least 8 characters long;
-- keep `S3_ACCESS_KEY` equal to `MINIO_ROOT_USER`;
-- keep `S3_SECRET_KEY` equal to `MINIO_ROOT_PASSWORD`.
-
-The current production setup uses the same MinIO credentials for bootstrap and backend storage access.
-
-## Basic server prerequisites
-
-For Ubuntu 24.04, the safest path is Docker's official Ubuntu repository:
+On a clean server:
 
 ```bash
-sudo apt update
-sudo apt install -y ca-certificates curl gnupg nginx certbot python3-certbot-nginx git
-sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo ${UBUNTU_CODENAME}) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo systemctl enable --now docker nginx
-sudo usermod -aG docker $USER
+apt update
+apt install -y git
+git clone <YOUR_REPOSITORY_URL> /opt/underworld-chat
+cd /opt/underworld-chat
+sudo bash scripts/bootstrap-ubuntu-24.sh
 ```
 
-Log out and back in once after adding your user to the `docker` group.
+Then log out and back in, or open a new SSH session, so Docker group membership takes effect.
 
-If you prefer Ubuntu's own packages, `docker-compose-v2` is also available for Noble 24.04, but mixing Ubuntu-packaged Docker with Docker's official packages is a bad idea. Pick one route and keep it consistent.
-
-## Minimal commands
+### 2. Prepare the production env file
 
 ```bash
+cd /opt/underworld-chat
 cp .env.production.example .env.production
 nano .env.production
-
-docker compose -f docker-compose.prod.yml --env-file .env.production build
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d postgres redis minio
-sleep 5
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm createbuckets
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm backend python manage.py migrate --noinput
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm backend python manage.py collectstatic --noinput
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d
-docker compose -f docker-compose.prod.yml --env-file .env.production logs -f web backend ws
 ```
 
-Or simply:
+At minimum review and adjust:
+
+- `APP_HTTP_BIND=0.0.0.0`
+- `APP_HTTP_PORT=80`
+- `APP_DOMAIN=185.68.244.224`
+- `DJANGO_ALLOWED_HOSTS=185.68.244.224`
+- `DJANGO_CORS_ALLOWED_ORIGINS=http://185.68.244.224`
+- `DJANGO_CSRF_TRUSTED_ORIGINS=http://185.68.244.224`
+- `POSTGRES_PASSWORD`
+- `DJANGO_SECRET_KEY`
+- `MASTER_ENCRYPTION_KEY`
+- `MINIO_ROOT_USER`
+- `MINIO_ROOT_PASSWORD`
+- `S3_ACCESS_KEY`
+- `S3_SECRET_KEY`
+
+Important MinIO note:
+
+- `MINIO_ROOT_PASSWORD` must be at least 8 characters long;
+- `S3_ACCESS_KEY` must match `MINIO_ROOT_USER`;
+- `S3_SECRET_KEY` must match `MINIO_ROOT_PASSWORD`.
+
+### 3. Open the firewall port
+
+If you use `ufw`:
 
 ```bash
-chmod +x scripts/deploy-prod.sh
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw status
+```
+
+### 4. Start the project
+
+```bash
+cd /opt/underworld-chat
+chmod +x scripts/*.sh
 ./scripts/deploy-prod.sh
 ```
 
-For later application updates:
-
-```bash
-chmod +x scripts/update-prod.sh
-./scripts/update-prod.sh
-```
-
-## Useful first-run commands
+### 5. Verify the stack
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env.production ps
-docker compose -f docker-compose.prod.yml --env-file .env.production logs -f web backend ws worker
-curl http://127.0.0.1:18080/healthz/
-docker compose -f docker-compose.prod.yml --env-file .env.production run --rm backend python manage.py createsuperuser
+docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=100 web backend ws worker
+curl http://127.0.0.1/healthz/
+curl http://185.68.244.224/healthz/
 ```
 
-## Host Nginx example
+The app should then open at:
 
-Use `infra/deploy/nginx-site.example.conf` as the template for the host machine Nginx. The important part is that the public Nginx listens on `80/443`, while Docker only listens on `127.0.0.1:${APP_HTTP_PORT}`.
-
-Typical flow:
-
-```bash
-sudo cp infra/deploy/nginx-site.example.conf /etc/nginx/sites-available/underworld-chat.conf
-sudo ln -s /etc/nginx/sites-available/underworld-chat.conf /etc/nginx/sites-enabled/underworld-chat.conf
-sudo nginx -t
-sudo systemctl reload nginx
+```text
+http://185.68.244.224
 ```
 
-Then add TLS:
+## Updating the application
 
 ```bash
-sudo certbot --nginx -d chat.example.com
-```
-
-Before reloading Nginx, edit the copied config and replace:
-
-- `chat.example.com` with your real subdomain;
-- `127.0.0.1:18080` with the same value as `APP_HTTP_PORT` in `.env.production`.
-
-## Optional systemd autostart
-
-Docker restart policies are already enabled, so this is optional. If you want a dedicated unit:
-
-```bash
-sudo cp infra/deploy/underworld-chat.service.example /etc/systemd/system/underworld-chat.service
-sudo nano /etc/systemd/system/underworld-chat.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now underworld-chat.service
-```
-
-Change `WorkingDirectory=/opt/underworld-chat` to the real repository path on your server first.
-
-## Updates
-
-```bash
+cd /opt/underworld-chat
+git pull
+chmod +x scripts/*.sh
 ./scripts/update-prod.sh
 ```
+
+## Destroying the stack completely
+
+If you want to fully free the server for another project:
+
+```bash
+cd /opt/underworld-chat
+CONFIRM_DESTROY=underworld-chat ./scripts/destroy-prod.sh
+```
+
+This command will:
+
+- stop the containers;
+- remove PostgreSQL, Redis, and MinIO volumes;
+- remove the compose project networks.
+
+It does not delete the repository files themselves.
+
+After that you can:
+
+- remove the repository directory manually;
+- clone a different project;
+- deploy a new stack on the same server.
+
+## What if port 80 is already occupied?
+
+If something already listens on port `80`, you have two options:
+
+1. stop the old project and free the port;
+2. temporarily change `APP_HTTP_PORT` in `.env.production`, for example to `18080`, and open the service by `http://IP:18080`.
+
+To check what is using port `80`:
+
+```bash
+sudo ss -ltnp | grep :80
+docker ps
+```
+
+## Optional shared-host mode
+
+If you later need to host multiple projects on the same server again, this repository can still be used in the old coexistence mode:
+
+- `APP_HTTP_BIND=127.0.0.1`
+- `APP_HTTP_PORT=18080`
+- a host Nginx reverse proxy forwards traffic into Docker
+
+Templates for that mode are still available in:
+
+- `infra/deploy/nginx-site.example.conf`
+- `infra/deploy/nginx-site.ip.example.conf`
+- `infra/deploy/underworld-chat.service.example`
