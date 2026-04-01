@@ -16,6 +16,7 @@ class ChatMemberSerializer(serializers.ModelSerializer):
 
 
 class ChatSerializer(serializers.ModelSerializer):
+    title = serializers.SerializerMethodField()
     members = ChatMemberSerializer(source="memberships", many=True, read_only=True)
     last_message_preview = serializers.SerializerMethodField()
     last_message_at = serializers.SerializerMethodField()
@@ -33,10 +34,27 @@ class ChatSerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
+    def get_title(self, obj: Chat) -> str:
+        if obj.is_personal_notes:
+            return obj.title or "Notes"
+        if obj.title:
+            return obj.title
+
+        request = self.context.get("request")
+        current_user = getattr(request, "user", None)
+        for membership in obj.memberships.all():
+            if current_user and membership.user_id == current_user.id:
+                continue
+            return membership.user.display_name or membership.user.public_id
+
+        return "Direct chat"
+
     def get_last_message_preview(self, obj: Chat) -> str:
         message = obj.messages.filter(deleted_at__isnull=True).order_by("-created_at").first()
         if not message:
             return ""
+        if message.kind == Message.Kind.SYSTEM:
+            return "System message"
         return message.ciphertext[:120]
 
     def get_last_message_at(self, obj: Chat):

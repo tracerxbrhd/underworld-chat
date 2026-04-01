@@ -8,28 +8,35 @@ from apps.chats.services import ensure_personal_notes_chat
 from apps.security.models import RecoveryCredential, SecurityEvent
 
 from .models import DeviceSession
-from .serializers import AuthEnvelopeSerializer, DeviceSessionSerializer
+from .serializers import AuthEnvelopeSerializer, DeviceSessionSerializer, LoginInputSerializer, RegisterInputSerializer
 from .services import (
+    authenticate_user,
     build_device_name,
-    bootstrap_user,
     create_device_session,
     hash_token,
+    register_user,
     rotate_session_tokens,
     verify_recovery_key,
 )
 
 
-class AnonymousRegisterView(APIView):
+class RegisterView(APIView):
     authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        raw_platform = str(request.data.get("platform") or DeviceSession.Platform.WEB)
-        platform = raw_platform if raw_platform in DeviceSession.Platform.values else DeviceSession.Platform.WEB
-        preferred_language = request.data.get("preferred_language") or getattr(request, "LANGUAGE_CODE", "en")
-        device_name = build_device_name(request.data.get("device_name"), platform)
+        serializer = RegisterInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        user, session, token_pair, recovery_key = bootstrap_user(
+        raw_platform = str(serializer.validated_data.get("platform") or DeviceSession.Platform.WEB)
+        platform = raw_platform if raw_platform in DeviceSession.Platform.values else DeviceSession.Platform.WEB
+        preferred_language = serializer.validated_data.get("preferred_language") or getattr(request, "LANGUAGE_CODE", "en")
+        device_name = build_device_name(serializer.validated_data.get("device_name"), platform)
+
+        user, session, token_pair, recovery_key = register_user(
+            public_id=serializer.validated_data["public_id"],
+            password=serializer.validated_data["password"],
+            display_name=str(serializer.validated_data.get("display_name") or serializer.validated_data["public_id"]).strip(),
             preferred_language=preferred_language,
             device_name=device_name,
             platform=platform,
@@ -48,6 +55,41 @@ class AnonymousRegisterView(APIView):
             context={"current_session": session},
         )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class LoginView(APIView):
+    authentication_classes = []
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = LoginInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        raw_platform = str(serializer.validated_data.get("platform") or DeviceSession.Platform.WEB)
+        platform = raw_platform if raw_platform in DeviceSession.Platform.values else DeviceSession.Platform.WEB
+        device_name = build_device_name(serializer.validated_data.get("device_name"), platform)
+        user = authenticate_user(
+            public_id=serializer.validated_data["public_id"],
+            password=serializer.validated_data["password"],
+        )
+        if not user:
+            return Response({"detail": "Invalid login or password."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        session, token_pair = create_device_session(
+            user=user,
+            device_name=device_name,
+            platform=platform,
+        )
+        payload = {
+            "user": user,
+            "profile": user.profile,
+            "device_session": session,
+            "notes_channel": ensure_personal_notes_chat(user),
+            "access_token": token_pair.access_token,
+            "refresh_token": token_pair.refresh_token,
+        }
+        response_serializer = AuthEnvelopeSerializer(payload, context={"current_session": session})
+        return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
 class RefreshView(APIView):

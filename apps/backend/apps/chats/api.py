@@ -21,7 +21,7 @@ class ChatListCreateView(APIView):
             .distinct()
             .order_by("-updated_at")
         )
-        serializer = ChatSerializer(chats, many=True)
+        serializer = ChatSerializer(chats, many=True, context={"request": request})
         return Response(serializer.data)
 
     def post(self, request):
@@ -53,7 +53,7 @@ class ChatListCreateView(APIView):
         else:
             chat = ensure_personal_notes_chat(request.user)
 
-        return Response(ChatSerializer(chat).data, status=status.HTTP_201_CREATED)
+        return Response(ChatSerializer(chat, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 class ChatSearchView(APIView):
@@ -96,7 +96,8 @@ class ChatSearchView(APIView):
             {
                 "chats": chats,
                 "users": users,
-            }
+            },
+            context={"request": request},
         )
         return Response(serializer.data)
 
@@ -114,7 +115,7 @@ class ChatDetailView(APIView):
         if not chat:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        chat_payload = ChatSerializer(chat).data
+        chat_payload = ChatSerializer(chat, context={"request": request}).data
         messages = MessageSerializer(chat.messages.order_by("created_at")[:50], many=True, context={"request": request})
         return Response(
             {

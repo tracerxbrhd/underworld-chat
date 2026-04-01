@@ -9,7 +9,6 @@ type SessionState = {
   status: SessionStatus;
   accessToken: string | null;
   refreshToken: string | null;
-  recoveryKey: string | null;
   profile: ProfilePayload | null;
   notesChannelId: string | null;
   setAuthenticated: (payload: AuthEnvelope) => void;
@@ -25,7 +24,6 @@ export const useSessionStore = create<SessionState>()(
       status: "guest",
       accessToken: null,
       refreshToken: null,
-      recoveryKey: null,
       profile: null,
       notesChannelId: null,
       setAuthenticated: (payload) =>
@@ -33,7 +31,6 @@ export const useSessionStore = create<SessionState>()(
           status: "authenticated",
           accessToken: payload.access_token,
           refreshToken: payload.refresh_token,
-          recoveryKey: payload.recovery_key ?? null,
           profile: payload.profile,
           notesChannelId: payload.notes_channel.id,
         }),
@@ -52,7 +49,6 @@ export const useSessionStore = create<SessionState>()(
           status: "guest",
           accessToken: null,
           refreshToken: null,
-          recoveryKey: null,
           profile: null,
           notesChannelId: null,
         }),
@@ -61,7 +57,6 @@ export const useSessionStore = create<SessionState>()(
           status: "revoked",
           accessToken: null,
           refreshToken: null,
-          recoveryKey: null,
         }),
     }),
     {
@@ -70,7 +65,6 @@ export const useSessionStore = create<SessionState>()(
         status: state.status,
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
-        recoveryKey: state.recoveryKey,
         profile: state.profile,
         notesChannelId: state.notesChannelId,
       }),

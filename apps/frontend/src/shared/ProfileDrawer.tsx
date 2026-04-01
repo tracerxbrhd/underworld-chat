@@ -9,11 +9,13 @@ const fallbackAvatar =
 type ProfileDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
+  onLogout: () => void;
+  isLoggingOut: boolean;
   onSave: (payload: Partial<ProfilePayload>) => Promise<unknown> | unknown;
   profile: ProfilePayload;
 };
 
-export function ProfileDrawer({ isOpen, onClose, onSave, profile }: ProfileDrawerProps) {
+export function ProfileDrawer({ isOpen, onClose, onLogout, isLoggingOut, onSave, profile }: ProfileDrawerProps) {
   const { copy } = useI18n();
   const [form, setForm] = useState(profile);
   const [isSaving, setSaving] = useState(false);
@@ -101,21 +103,26 @@ export function ProfileDrawer({ isOpen, onClose, onSave, profile }: ProfileDrawe
 
         <div className="drawer-actions">
           <p className="muted">{copy.workspace.profileSaved}</p>
-          <button
-            className="primary-button"
-            onClick={async () => {
-              setSaving(true);
-              try {
-                await Promise.resolve(onSave(form));
-                onClose();
-              } finally {
-                setSaving(false);
-              }
-            }}
-            type="button"
-          >
-            {isSaving ? copy.common.loading : copy.common.save}
-          </button>
+          <div className="drawer-actions-row">
+            <button className="ghost-button" disabled={isLoggingOut} onClick={onLogout} type="button">
+              {isLoggingOut ? copy.common.loading : copy.common.logout}
+            </button>
+            <button
+              className="primary-button"
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await Promise.resolve(onSave(form));
+                  onClose();
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              type="button"
+            >
+              {isSaving ? copy.common.loading : copy.common.save}
+            </button>
+          </div>
         </div>
       </aside>
     </div>

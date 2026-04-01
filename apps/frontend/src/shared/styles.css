@@ -124,6 +124,7 @@ img {
 .ghost-button,
 .ghost-link,
 .icon-button,
+.profile-trigger,
 .dialog-row,
 .primary-button {
   transition:
@@ -164,7 +165,20 @@ img {
   box-shadow: 0 0 32px rgba(83, 245, 143, 0.12);
 }
 
+.profile-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: rgba(6, 14, 10, 0.88);
+  color: var(--accent-strong);
+  box-shadow: 0 0 32px rgba(83, 245, 143, 0.08);
+}
+
 .icon-button:hover,
+.profile-trigger:hover,
 .primary-button:hover,
 .dialog-row:hover {
   transform: translateY(-1px);
@@ -231,6 +245,30 @@ img {
   border-radius: 24px;
 }
 
+.auth-card {
+  display: grid;
+  gap: 18px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.auth-form {
+  display: grid;
+  gap: 4px;
+}
+
+.auth-hint {
+  margin: 0;
+}
+
+.auth-submit {
+  margin-top: 10px;
+  width: 100%;
+}
+
 .panel-compact h3 {
   margin-top: 0;
 }
@@ -264,7 +302,8 @@ img {
 .dialogs-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
+  min-height: 0;
   padding: 22px;
 }
 
@@ -273,6 +312,10 @@ img {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.panel-heading-compact {
+  align-items: center;
 }
 
 .profile-chip {
@@ -338,6 +381,8 @@ img {
 .dialogs-list {
   display: grid;
   gap: 10px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .dialog-row {
@@ -425,6 +470,7 @@ img {
 
 .message-bubble p {
   margin: 8px 0;
+  white-space: pre-wrap;
 }
 
 .message-bubble.incoming {
@@ -436,6 +482,13 @@ img {
   align-self: flex-end;
   background: rgba(83, 245, 143, 0.12);
   border-color: rgba(83, 245, 143, 0.2);
+}
+
+.message-bubble.system {
+  align-self: center;
+  max-width: min(620px, 100%);
+  background: rgba(83, 245, 143, 0.06);
+  border-color: rgba(83, 245, 143, 0.16);
 }
 
 .composer-bar {
@@ -524,6 +577,12 @@ img {
   justify-content: space-between;
 }
 
+.drawer-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 @media (max-width: 1080px) {
   .landing-grid,
   .workspace-grid {
@@ -565,5 +624,16 @@ img {
 
   .profile-drawer {
     width: 100%;
+  }
+
+  .auth-tabs,
+  .drawer-actions-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .profile-trigger {
+    width: 100%;
+    justify-content: center;
   }
 }

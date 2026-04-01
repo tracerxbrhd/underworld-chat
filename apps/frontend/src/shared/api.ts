@@ -84,10 +84,20 @@ export type MessagePayload = {
   is_self: boolean;
 };
 
-export type AnonymousRegisterInput = {
+export type RegisterInput = {
+  public_id: string;
+  password: string;
+  display_name?: string;
   device_name: string;
   platform: string;
   preferred_language: "en" | "ru";
+};
+
+export type LoginInput = {
+  public_id: string;
+  password: string;
+  device_name: string;
+  platform: string;
 };
 
 export type ProfileUpdateInput = {
@@ -135,8 +145,17 @@ async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function anonymousRegister(input: AnonymousRegisterInput, locale: "en" | "ru"): Promise<AuthEnvelope> {
-  const response = await fetch(`${API_BASE_URL}/auth/anonymous-register`, {
+export async function registerAccount(input: RegisterInput, locale: "en" | "ru"): Promise<AuthEnvelope> {
+  const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    method: "POST",
+    headers: buildHeaders(locale, undefined, true),
+    body: JSON.stringify(input),
+  });
+  return parseJson<AuthEnvelope>(response);
+}
+
+export async function loginAccount(input: LoginInput, locale: "en" | "ru"): Promise<AuthEnvelope> {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: buildHeaders(locale, undefined, true),
     body: JSON.stringify(input),

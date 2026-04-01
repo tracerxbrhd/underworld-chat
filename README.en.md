@@ -1,6 +1,6 @@
 # Underworld Chat
 
-Underworld Chat is a privacy-first messenger scaffold designed around anonymous identities, open registration, and device sessions instead of phone numbers.
+Underworld Chat is a privacy-first messenger scaffold designed around user-chosen logins, passwords, and device sessions instead of phone numbers.
 
 ## Product Shape
 

@@ -7,32 +7,14 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.utils import timezone
 
 from apps.accounts.models import User, UserProfile
+from apps.chats.services import ensure_personal_notes_chat
+from apps.messages.models import Message
 from apps.security.models import RecoveryCredential, SecurityEvent
 
 from .models import DeviceSession
 
 ACCESS_TOKEN_TTL = timedelta(hours=12)
 REFRESH_TOKEN_TTL = timedelta(days=30)
-
-PUBLIC_ID_PREFIXES = (
-    "cipher",
-    "ghost",
-    "night",
-    "shadow",
-    "signal",
-    "veil",
-)
-
-PUBLIC_ID_SUFFIXES = (
-    "arc",
-    "drift",
-    "echo",
-    "forge",
-    "owl",
-    "pulse",
-    "trace",
-)
-
 
 @dataclass
 class IssuedTokenPair:
@@ -60,18 +42,6 @@ def issue_token_pair() -> IssuedTokenPair:
         access_token_expires_at=now + ACCESS_TOKEN_TTL,
         refresh_token_expires_at=now + REFRESH_TOKEN_TTL,
     )
-
-
-def generate_public_id() -> str:
-    while True:
-        candidate = (
-            f"{secrets.choice(PUBLIC_ID_PREFIXES)}-"
-            f"{secrets.choice(PUBLIC_ID_SUFFIXES)}-"
-            f"{secrets.token_hex(2)}"
-        )
-        if not User.objects.filter(public_id=candidate).exists():
-            return candidate
-
 
 def issue_recovery_key() -> tuple[str, str]:
     recovery_key = secrets.token_urlsafe(36)
@@ -112,15 +82,49 @@ def create_device_session(*, user: User, device_name: str, platform: str) -> tup
     return session, token_pair
 
 
-def bootstrap_user(*, preferred_language: str, device_name: str, platform: str):
-    from apps.chats.services import ensure_personal_notes_chat
+def build_recovery_message(*, public_id: str, recovery_key: str, preferred_language: str) -> str:
+    if preferred_language == "ru":
+        return (
+            "Ключ восстановления для этого аккаунта.\n\n"
+            f"Логин: @{public_id}\n"
+            f"Ключ: {recovery_key}\n\n"
+            "Сохрани это сообщение в надежном месте. "
+            "Этот ключ пригодится для восстановления доступа на новом устройстве."
+        )
+    return (
+        "Recovery key for this account.\n\n"
+        f"Login: @{public_id}\n"
+        f"Key: {recovery_key}\n\n"
+        "Store this message somewhere safe. "
+        "You can use this key to recover access on a new device."
+    )
 
-    public_id = generate_public_id()
+
+def append_recovery_message(*, user: User, recovery_key: str, preferred_language: str) -> None:
+    notes_chat = ensure_personal_notes_chat(user)
+    Message.objects.create(
+        chat=notes_chat,
+        sender=user,
+        kind=Message.Kind.SYSTEM,
+        ciphertext=build_recovery_message(
+            public_id=user.public_id,
+            recovery_key=recovery_key,
+            preferred_language=preferred_language,
+        ),
+    )
+    notes_chat.save(update_fields=["updated_at"])
+
+
+def register_user(*, public_id: str, password: str, display_name: str, preferred_language: str, device_name: str, platform: str):
     user = User.objects.create_user(
         public_id=public_id,
+        password=password,
         display_name=public_id,
         avatar="",
     )
+    if display_name:
+        user.display_name = display_name
+        user.save(update_fields=["display_name", "updated_at"])
     UserProfile.objects.create(
         user=user,
         preferred_language=preferred_language if preferred_language in {"en", "ru"} else "en",
@@ -131,13 +135,24 @@ def bootstrap_user(*, preferred_language: str, device_name: str, platform: str):
         recovery_key_hash=recovery_key_hash,
         hint=recovery_key[-6:],
     )
-    ensure_personal_notes_chat(user)
+    append_recovery_message(
+        user=user,
+        recovery_key=recovery_key,
+        preferred_language=preferred_language if preferred_language in {"en", "ru"} else "en",
+    )
     session, token_pair = create_device_session(
         user=user,
         device_name=device_name,
         platform=platform,
     )
     return user, session, token_pair, recovery_key
+
+
+def authenticate_user(*, public_id: str, password: str) -> User | None:
+    user = User.objects.select_related("profile").filter(public_id=public_id, is_active=True).first()
+    if not user or not user.check_password(password):
+        return None
+    return user
 
 
 def rotate_session_tokens(session: DeviceSession) -> IssuedTokenPair:

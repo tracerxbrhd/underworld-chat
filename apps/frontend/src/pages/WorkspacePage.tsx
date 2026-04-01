@@ -3,6 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  type ChatPayload,
   createDirectChat,
   fetchChats,
   fetchMe,
@@ -18,11 +19,25 @@ import { UserGlyph } from "../shared/UserGlyph";
 import { useI18n } from "../shared/i18n";
 import { useSessionStore } from "../shared/session-store";
 
+function sortChats(chats: ChatPayload[]): ChatPayload[] {
+  return [...chats].sort((left, right) => {
+    if (left.is_personal_notes && !right.is_personal_notes) {
+      return -1;
+    }
+    if (!left.is_personal_notes && right.is_personal_notes) {
+      return 1;
+    }
+
+    const leftDate = left.last_message_at ?? left.updated_at;
+    const rightDate = right.last_message_at ?? right.updated_at;
+    return new Date(rightDate).getTime() - new Date(leftDate).getTime();
+  });
+}
+
 export function WorkspacePage() {
   const queryClient = useQueryClient();
   const { copy, locale } = useI18n();
-  const { accessToken, clearAuth, notesChannelId, profile, recoveryKey, setNotesChannelId, setProfile } =
-    useSessionStore();
+  const { accessToken, clearAuth, notesChannelId, profile, setNotesChannelId, setProfile } = useSessionStore();
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(notesChannelId);
   const [draftMessage, setDraftMessage] = useState("");
@@ -165,7 +180,8 @@ export function WorkspacePage() {
 
   const currentProfile = profile ?? meQuery.data?.profile ?? null;
   const isSearching = deferredSearchValue.length > 0;
-  const visibleChats = isSearching ? searchQuery.data?.chats ?? [] : chatsQuery.data ?? [];
+  const orderedChats = useMemo(() => sortChats(chatsQuery.data ?? []), [chatsQuery.data]);
+  const visibleChats = isSearching ? sortChats(searchQuery.data?.chats ?? []) : orderedChats;
 
   return (
     <section className="workspace-page">
@@ -177,10 +193,13 @@ export function WorkspacePage() {
 
         <div className="header-actions">
           <LanguageSwitch />
-          <button className="ghost-button" onClick={() => logoutMutation.mutate()} type="button">
-            {copy.common.logout}
-          </button>
-          <button className="icon-button" onClick={() => setProfileOpen(true)} type="button">
+          <button
+            aria-label={copy.workspace.openProfile}
+            className="profile-trigger"
+            onClick={() => setProfileOpen(true)}
+            type="button"
+          >
+            <span>{currentProfile?.display_name ?? copy.common.profile}</span>
             <UserGlyph className="user-glyph" />
           </button>
         </div>
@@ -188,35 +207,9 @@ export function WorkspacePage() {
 
       <div className="workspace-grid">
         <aside className="dialogs-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>{copy.workspace.dialogsTitle}</h2>
-              <p className="muted">{copy.workspace.dialogsHint}</p>
-            </div>
-            <span className="status-pill authenticated">{copy.workspace.topStatus}</span>
+          <div className="panel-heading panel-heading-compact">
+            <h2>{copy.workspace.dialogsTitle}</h2>
           </div>
-
-          {recoveryKey ? (
-            <section className="recovery-banner">
-              <p className="eyebrow">{copy.workspace.recoveryTitle}</p>
-              <strong>{recoveryKey}</strong>
-              <p className="muted">{copy.workspace.recoveryText}</p>
-            </section>
-          ) : null}
-
-          {currentProfile ? (
-            <div className="profile-chip">
-              <img
-                alt={currentProfile.display_name}
-                className="profile-avatar"
-                src={currentProfile.avatar || "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect width='96' height='96' rx='24' fill='%2309140e'/><path d='M48 49c10.493 0 19-8.507 19-19S58.493 11 48 11 29 19.507 29 30s8.507 19 19 19Zm0 8c-15.464 0-28 8.73-28 19.5C20 79.538 21.962 82 24.381 82h47.238C74.038 82 76 79.538 76 76.5 76 65.73 63.464 57 48 57Z' fill='%2353f58f'/></svg>"}
-              />
-              <div>
-                <strong>{currentProfile.display_name}</strong>
-                <p className="muted">@{currentProfile.public_id}</p>
-              </div>
-            </div>
-          ) : null}
 
           <div className="search-block">
             <input
@@ -235,7 +228,6 @@ export function WorkspacePage() {
               <p className="muted">{copy.workspace.emptyChats}</p>
             ) : null}
 
-            {isSearching ? <p className="eyebrow search-heading">{copy.workspace.searchChatsTitle}</p> : null}
             {isSearching && searchQuery.isLoading ? <p className="muted">{copy.common.loading}</p> : null}
             {isSearching && searchError ? <p className="error">{searchError.message}</p> : null}
             {isSearching && createChatError ? <p className="error">{createChatError.message}</p> : null}
@@ -255,16 +247,18 @@ export function WorkspacePage() {
                     <span className="status-pill planned">{copy.workspace.personalChannelBadge}</span>
                   ) : null}
                 </div>
-                <p>{chat.last_message_preview || copy.workspace.healthValue}</p>
+                <p>{chat.last_message_preview || copy.workspace.emptyPreview}</p>
               </button>
             ))}
 
-            {isSearching ? <p className="eyebrow search-heading">{copy.workspace.searchUsersTitle}</p> : null}
             {isSearching &&
             !searchQuery.isLoading &&
             !visibleChats.length &&
             !(searchQuery.data?.users?.length ?? 0) ? (
               <p className="muted">{copy.workspace.searchEmpty}</p>
+            ) : null}
+            {isSearching && (searchQuery.data?.users?.length ?? 0) > 0 ? (
+              <p className="eyebrow search-heading">{copy.workspace.searchUsersTitle}</p>
             ) : null}
             {isSearching &&
               searchQuery.data?.users.map((user) => (
@@ -303,16 +297,22 @@ export function WorkspacePage() {
               <div className="messages-column">
                 {messagesQuery.isLoading ? <p className="muted">{copy.workspace.messagesLoading}</p> : null}
                 {messagesError ? <p className="error">{messagesError.message}</p> : null}
-                {messagesQuery.data?.map((message) => (
-                  <article
-                    key={message.id}
-                    className={message.is_self ? "message-bubble outgoing" : "message-bubble incoming"}
-                  >
-                    <strong>{message.sender_public_id}</strong>
-                    <p>{message.deleted_at ? copy.workspace.deletedMessage : message.body}</p>
-                    <span>{new Date(message.created_at).toLocaleString(locale)}</span>
-                  </article>
-                ))}
+                {messagesQuery.data?.map((message) => {
+                  const messageClassName =
+                    message.kind === "system"
+                      ? "message-bubble system"
+                      : message.is_self
+                        ? "message-bubble outgoing"
+                        : "message-bubble incoming";
+
+                  return (
+                    <article key={message.id} className={messageClassName}>
+                      {message.kind === "system" ? <strong>{copy.workspace.systemMessageLabel}</strong> : <strong>{message.sender_public_id}</strong>}
+                      <p>{message.deleted_at ? copy.workspace.deletedMessage : message.body}</p>
+                      <span>{new Date(message.created_at).toLocaleString(locale)}</span>
+                    </article>
+                  );
+                })}
               </div>
 
               <footer className="composer-bar">
@@ -346,6 +346,8 @@ export function WorkspacePage() {
         <ProfileDrawer
           isOpen={isProfileOpen}
           onClose={() => setProfileOpen(false)}
+          onLogout={() => logoutMutation.mutate()}
+          isLoggingOut={logoutMutation.isPending}
           onSave={async (payload) => {
             await profileMutation.mutateAsync({ ...currentProfile, ...payload });
           }}

@@ -17,8 +17,8 @@ class HealthcheckView(APIView):
                 "service": localized(request, en="backend", ru="backend"),
                 "auth_mode": localized(
                     request,
-                    en="anonymous-device-first",
-                    ru="anonymous-device-first",
+                    en="login-password-and-device-sessions",
+                    ru="login-password-and-device-sessions",
                 ),
                 "realtime": localized(request, en="channels", ru="channels"),
                 "storage_bucket": settings.S3_BUCKET,

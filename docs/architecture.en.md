@@ -6,7 +6,7 @@ The system is modeled as a messaging backend with a public landing page for gues
 
 ## Identity and Sessions
 
-- Anonymous account as the primary identity
+- User-chosen login and password as the base account identity
 - Immutable `public_id` as the account login
 - Device sessions as the main access unit
 - Recovery key and pairing flow for additional devices

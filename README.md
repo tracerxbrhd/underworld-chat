@@ -2,7 +2,7 @@
 
 `EN` | [Русская версия](./README.ru.md)
 
-Privacy-first messenger scaffold with anonymous accounts, device-centric access, and an interface split between a public landing page and an authenticated dialog workspace.
+Privacy-first messenger scaffold with user-chosen logins, device-centric sessions, and an interface split between a public landing page and an authenticated dialog workspace.
 
 ## License
 
