@@ -15,6 +15,7 @@ import {
   updateProfile,
 } from "../shared/api";
 import { LanguageSwitch } from "../shared/LanguageSwitch";
+import { MatrixRain } from "../shared/MatrixRain";
 import { ProfileDrawer } from "../shared/ProfileDrawer";
 import { UserGlyph } from "../shared/UserGlyph";
 import { useI18n } from "../shared/i18n";
@@ -39,12 +40,27 @@ function sortChats(chats: ChatPayload[]): ChatPayload[] {
 export function WorkspacePage() {
   const queryClient = useQueryClient();
   const { copy, locale } = useI18n();
-  const { accessToken, clearAuth, notesChannelId, profile, setNotesChannelId, setProfile } = useSessionStore();
+  const { accessToken, clearAuth, profile, setNotesChannelId, setProfile } = useSessionStore();
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [peerProfileId, setPeerProfileId] = useState<string | null>(null);
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(notesChannelId);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [isDialogsOpen, setDialogsOpen] = useState(false);
   const [draftMessage, setDraftMessage] = useState("");
   const [searchValue, setSearchValue] = useState("");
+  const [showLaunchOverlay, setShowLaunchOverlay] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.sessionStorage.getItem("underworld-launch") === "1";
+  });
+  const [isWorkspaceEntering, setWorkspaceEntering] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.sessionStorage.getItem("underworld-launch") === "1";
+  });
   const deferredSearchValue = useDeferredValue(searchValue.trim());
   const messagesColumnRef = useRef<HTMLDivElement | null>(null);
   const selectedChatIdRef = useRef<string | null>(selectedChatId);
@@ -111,14 +127,10 @@ export function WorkspacePage() {
     if (!chatsQuery.data?.length) {
       return;
     }
-    if (!selectedChatId) {
-      setSelectedChatId(notesChannelId ?? chatsQuery.data[0].id);
-      return;
+    if (selectedChatId && !chatsQuery.data.some((chat) => chat.id === selectedChatId)) {
+      setSelectedChatId(null);
     }
-    if (!chatsQuery.data.some((chat) => chat.id === selectedChatId)) {
-      setSelectedChatId(notesChannelId ?? chatsQuery.data[0].id);
-    }
-  }, [chatsQuery.data, notesChannelId, selectedChatId]);
+  }, [chatsQuery.data, selectedChatId]);
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
@@ -184,6 +196,7 @@ export function WorkspacePage() {
         return [chat, ...current];
       });
       setSelectedChatId(chat.id);
+      setDialogsOpen(false);
       setSearchValue("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["chats", locale, accessToken] }),
@@ -198,6 +211,7 @@ export function WorkspacePage() {
   const isSearching = deferredSearchValue.length > 0;
   const orderedChats = useMemo(() => sortChats(chatsQuery.data ?? []), [chatsQuery.data]);
   const visibleChats = isSearching ? sortChats(searchQuery.data?.chats ?? []) : orderedChats;
+  const shouldAnimateChatRows = isWorkspaceEntering && !isSearching;
   const peerMember = useMemo(() => {
     if (!selectedChat || selectedChat.is_personal_notes || !currentPublicId) {
       return null;
@@ -208,6 +222,39 @@ export function WorkspacePage() {
   useEffect(() => {
     currentPublicIdRef.current = currentPublicId;
   }, [currentPublicId]);
+
+  useEffect(() => {
+    if (!isDialogsOpen) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDialogsOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [isDialogsOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !showLaunchOverlay) {
+      return;
+    }
+
+    window.sessionStorage.removeItem("underworld-launch");
+
+    const overlayTimer = window.setTimeout(() => setShowLaunchOverlay(false), 1320);
+    const revealTimer = window.setTimeout(() => setWorkspaceEntering(false), 2280);
+
+    return () => {
+      window.clearTimeout(overlayTimer);
+      window.clearTimeout(revealTimer);
+    };
+  }, [showLaunchOverlay]);
 
   useEffect(() => {
     const node = messagesColumnRef.current;
@@ -258,9 +305,44 @@ export function WorkspacePage() {
   }, [accessToken, locale, queryClient]);
 
   return (
-    <section className="workspace-page">
+    <section className={isDialogsOpen ? "workspace-page dialogs-open" : "workspace-page"}>
+      <MatrixRain />
+
+      {showLaunchOverlay ? (
+        <div className="workspace-launch-overlay" role="presentation">
+          <div className="console-shell console-shell-launching">
+            <section className="console-window console-window-launching">
+              <div className="console-toolbar">
+                <span className="console-toolbar-brand">UNDER OS</span>
+                <span className="console-toolbar-state">{copy.landing.consoleActive}</span>
+              </div>
+
+              <div className="console-screen console-screen-launching">
+                <div className="console-watermark">UNDER OS</div>
+                <div className="console-stack console-stack-launch">
+                  <p className="console-system-line console-system-line-accent">{copy.landing.launchAccepted}</p>
+                  <p className="console-line">{copy.landing.launchPreparing}</p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      ) : null}
+
       <header className="workspace-header">
-        <div>
+        <div className="workspace-title-block">
+          <button
+            aria-label={copy.workspace.openDialogs}
+            className="mobile-dialogs-toggle"
+            onClick={() => setDialogsOpen((current) => !current)}
+            type="button"
+          >
+            <span className="hamburger-icon" aria-hidden="true">
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+              <span className="hamburger-line" />
+            </span>
+          </button>
           <p className="eyebrow">{copy.workspace.shellTag}</p>
           <h1>{copy.common.appName}</h1>
         </div>
@@ -279,10 +361,20 @@ export function WorkspacePage() {
         </div>
       </header>
 
-      <div className="workspace-grid">
+      <div className={isWorkspaceEntering ? "workspace-grid workspace-grid-entering" : "workspace-grid"}>
+        <button
+          aria-label={copy.workspace.closeDialogs}
+          className="dialogs-overlay"
+          onClick={() => setDialogsOpen(false)}
+          type="button"
+        />
+
         <aside className="dialogs-panel">
           <div className="panel-heading panel-heading-compact">
             <h2>{copy.workspace.dialogsTitle}</h2>
+            <button className="mobile-dialogs-close ghost-button" onClick={() => setDialogsOpen(false)} type="button">
+              {copy.common.close}
+            </button>
           </div>
 
           <div className="search-block">
@@ -305,14 +397,24 @@ export function WorkspacePage() {
             {isSearching && searchQuery.isLoading ? <p className="muted">{copy.common.loading}</p> : null}
             {isSearching && searchError ? <p className="error">{searchError.message}</p> : null}
             {isSearching && createChatError ? <p className="error">{createChatError.message}</p> : null}
-            {visibleChats.map((chat) => (
+            {visibleChats.map((chat, index) => (
               <button
                 key={chat.id}
-                className={selectedChatId === chat.id ? "dialog-row active" : "dialog-row"}
+                className={
+                  selectedChatId === chat.id
+                    ? shouldAnimateChatRows
+                      ? "dialog-row active dialog-row-reveal"
+                      : "dialog-row active"
+                    : shouldAnimateChatRows
+                      ? "dialog-row dialog-row-reveal"
+                      : "dialog-row"
+                }
                 onClick={() => {
                   setSelectedChatId(chat.id);
+                  setDialogsOpen(false);
                   setSearchValue("");
                 }}
+                style={shouldAnimateChatRows ? { animationDelay: `${160 + index * 78}ms` } : undefined}
                 type="button"
               >
                 <div className="dialog-row-top">
@@ -339,7 +441,10 @@ export function WorkspacePage() {
                 <button
                   key={user.id}
                   className="dialog-row search-user-row"
-                  onClick={() => createChatMutation.mutate(user.public_id)}
+                  onClick={() => {
+                    setDialogsOpen(false);
+                    createChatMutation.mutate(user.public_id);
+                  }}
                   type="button"
                 >
                   <div className="dialog-row-top">
@@ -369,6 +474,9 @@ export function WorkspacePage() {
                       {copy.common.profile}
                     </button>
                   ) : null}
+                  <button className="ghost-button" onClick={() => setSelectedChatId(null)} type="button">
+                    {copy.workspace.closeDialog}
+                  </button>
                   <span className="status-pill authenticated">{copy.workspace.healthValue}</span>
                 </div>
               </div>

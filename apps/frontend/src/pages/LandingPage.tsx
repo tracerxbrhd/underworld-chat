@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
-import { loginAccount, registerAccount } from "../shared/api";
+import { type AuthEnvelope, loginAccount, registerAccount } from "../shared/api";
 import { LanguageSwitch } from "../shared/LanguageSwitch";
 import { MatrixRain } from "../shared/MatrixRain";
 import { useI18n } from "../shared/i18n";
@@ -11,6 +11,7 @@ import { useSessionStore } from "../shared/session-store";
 
 type LandingPhase = "boot" | "menu" | "auth";
 type AuthMode = "register" | "login";
+type AuthStep = "typing-login" | "login-input" | "typing-password" | "password-input";
 
 function resolveAudioContext() {
   if (typeof window === "undefined") {
@@ -59,12 +60,10 @@ export function LandingPage() {
   const [phase, setPhase] = useState<LandingPhase>("boot");
   const [bootProgress, setBootProgress] = useState(0);
   const [mode, setMode] = useState<AuthMode | null>(null);
-  const [typedPrompts, setTypedPrompts] = useState(["", ""]);
-  const [registerForm, setRegisterForm] = useState({
-    publicId: "",
-    password: "",
-  });
-  const [loginForm, setLoginForm] = useState({
+  const [authStep, setAuthStep] = useState<AuthStep>("typing-login");
+  const [typedLoginPrompt, setTypedLoginPrompt] = useState("");
+  const [typedPasswordPrompt, setTypedPasswordPrompt] = useState("");
+  const [credentials, setCredentials] = useState({
     publicId: "",
     password: "",
   });
@@ -76,49 +75,46 @@ export function LandingPage() {
       ? "Web device"
       : `${window.navigator.platform || "Web"} / ${window.navigator.userAgent.slice(0, 48)}`;
 
+  const completeAuthentication = (payload: AuthEnvelope) => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("underworld-launch", "1");
+    }
+    setAuthenticated(payload);
+    navigate("/app", { replace: true });
+  };
+
   const registerMutation = useMutation({
     mutationFn: () =>
       registerAccount(
         {
-          public_id: registerForm.publicId.trim().toLowerCase(),
-          display_name: registerForm.publicId.trim().toLowerCase(),
-          password: registerForm.password,
+          public_id: credentials.publicId.trim().toLowerCase(),
+          display_name: credentials.publicId.trim(),
+          password: credentials.password,
           device_name: deviceName,
           platform: "web",
           preferred_language: locale,
         },
         locale,
       ),
-    onSuccess: (payload) => {
-      setAuthenticated(payload);
-      navigate("/app");
-    },
+    onSuccess: completeAuthentication,
   });
 
   const loginMutation = useMutation({
     mutationFn: () =>
       loginAccount(
         {
-          public_id: loginForm.publicId.trim().toLowerCase(),
-          password: loginForm.password,
+          public_id: credentials.publicId.trim().toLowerCase(),
+          password: credentials.password,
           device_name: deviceName,
           platform: "web",
         },
         locale,
       ),
-    onSuccess: (payload) => {
-      setAuthenticated(payload);
-      navigate("/app");
-    },
+    onSuccess: completeAuthentication,
   });
 
-  const promptSequence = useMemo(() => [copy.landing.promptLogin, copy.landing.promptPassword], [copy.landing.promptLogin, copy.landing.promptPassword]);
   const isPending = registerMutation.isPending || loginMutation.isPending;
-  const registerError = registerMutation.error as Error | null;
-  const loginError = loginMutation.error as Error | null;
-  const activeError = mode === "register" ? registerError : loginError;
-  const loginPromptReady = typedPrompts[0] === promptSequence[0];
-  const passwordPromptReady = typedPrompts[1] === promptSequence[1];
+  const activeError = (mode === "register" ? registerMutation.error : loginMutation.error) as Error | null;
 
   useEffect(() => {
     if (phase !== "boot") {
@@ -150,79 +146,110 @@ export function LandingPage() {
   }, [phase]);
 
   useEffect(() => {
-    if (phase !== "auth" || !mode) {
+    if (phase !== "auth") {
       return;
     }
 
-    setTypedPrompts(["", ""]);
+    const prompt = authStep === "typing-login" ? copy.landing.promptLogin : authStep === "typing-password" ? copy.landing.promptPassword : null;
+    if (!prompt) {
+      return;
+    }
+
+    if (authStep === "typing-login") {
+      setTypedLoginPrompt("");
+      setTypedPasswordPrompt("");
+    } else {
+      setTypedPasswordPrompt("");
+    }
+
     const timers: number[] = [];
 
-    const typeLine = (lineIndex: number, charIndex: number) => {
-      const line = promptSequence[lineIndex];
-      setTypedPrompts((current) => {
-        const next = [...current];
-        next[lineIndex] = line.slice(0, charIndex);
-        return next;
-      });
+    const typePrompt = (index: number) => {
+      const nextValue = prompt.slice(0, index);
+      if (authStep === "typing-login") {
+        setTypedLoginPrompt(nextValue);
+      } else {
+        setTypedPasswordPrompt(nextValue);
+      }
 
-      if (charIndex <= line.length) {
+      if (index <= prompt.length) {
         playTypingTick(audioContextRef);
       }
 
-      if (charIndex < line.length) {
-        timers.push(window.setTimeout(() => typeLine(lineIndex, charIndex + 1), 26 + Math.floor(Math.random() * 24)));
+      if (index < prompt.length) {
+        timers.push(window.setTimeout(() => typePrompt(index + 1), 26 + Math.floor(Math.random() * 24)));
         return;
       }
 
-      if (lineIndex + 1 < promptSequence.length) {
-        timers.push(window.setTimeout(() => typeLine(lineIndex + 1, 1), 240));
-      }
+      timers.push(
+        window.setTimeout(() => {
+          setAuthStep(authStep === "typing-login" ? "login-input" : "password-input");
+        }, 140),
+      );
     };
 
-    timers.push(window.setTimeout(() => typeLine(0, 1), 160));
+    timers.push(window.setTimeout(() => typePrompt(1), 160));
 
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [phase, mode, promptSequence]);
+  }, [authStep, copy.landing.promptLogin, copy.landing.promptPassword, phase]);
 
   useEffect(() => {
-    if (phase === "auth" && loginPromptReady) {
+    if (phase !== "auth") {
+      return;
+    }
+
+    if (authStep === "login-input") {
       loginInputRef.current?.focus();
     }
-  }, [phase, loginPromptReady]);
-
-  useEffect(() => {
-    if (phase === "auth" && passwordPromptReady) {
+    if (authStep === "password-input") {
       passwordInputRef.current?.focus();
     }
-  }, [phase, passwordPromptReady]);
+  }, [authStep, phase]);
+
+  useEffect(() => {
+    if (phase !== "auth") {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || isPending) {
+        return;
+      }
+
+      registerMutation.reset();
+      loginMutation.reset();
+      setMode(null);
+      setCredentials({ publicId: "", password: "" });
+      setTypedLoginPrompt("");
+      setTypedPasswordPrompt("");
+      setAuthStep("typing-login");
+      setPhase("menu");
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [isPending, loginMutation, phase, registerMutation]);
 
   const startAuth = (nextMode: AuthMode) => {
     registerMutation.reset();
     loginMutation.reset();
     setMode(nextMode);
+    setCredentials({ publicId: "", password: "" });
+    setTypedLoginPrompt("");
+    setTypedPasswordPrompt("");
+    setAuthStep("typing-login");
     setPhase("auth");
     if (audioContextRef.current?.state === "suspended") {
       void audioContextRef.current.resume();
     }
   };
 
-  const backToMenu = () => {
-    registerMutation.reset();
-    loginMutation.reset();
-    setMode(null);
-    setTypedPrompts(["", ""]);
-    setPhase("menu");
-  };
-
   const submitCurrentMode = () => {
-    if (isPending || !mode) {
-      return;
-    }
-
-    const currentForm = mode === "register" ? registerForm : loginForm;
-    if (!currentForm.publicId.trim() || !currentForm.password) {
+    if (isPending || !mode || !credentials.publicId.trim() || !credentials.password) {
       return;
     }
 
@@ -264,84 +291,97 @@ export function LandingPage() {
   );
 
   const renderAuth = () => {
-    const formState = mode === "register" ? registerForm : loginForm;
-    const setFormState = mode === "register" ? setRegisterForm : setLoginForm;
-    const canSubmit = Boolean(formState.publicId.trim() && formState.password && !isPending);
     const submitLabel =
       mode === "register"
         ? registerMutation.isPending
           ? copy.landing.creating
-          : copy.landing.createProfile
+          : copy.landing.createProfileMode
         : loginMutation.isPending
           ? copy.landing.signingIn
-          : copy.common.signIn;
+          : copy.landing.loginMode;
 
     return (
-      <div className="console-stack">
+      <div className="console-stack console-stack-auth">
         <p className="console-system-line">{mode === "register" ? copy.landing.createProfileMode : copy.landing.loginMode}</p>
 
         <div className="console-line">
           <span className="console-prompt">&gt;</span>
-          <span>{typedPrompts[0]}</span>
-          {!loginPromptReady ? <span className="console-caret" /> : null}
+          <span>{typedLoginPrompt}</span>
+          {authStep === "typing-login" ? <span className="console-caret" /> : null}
         </div>
 
-        {loginPromptReady ? (
-          <div className="console-field">
-            <input
-              ref={loginInputRef}
-              autoCapitalize="none"
-              autoCorrect="off"
-              onChange={(event) => setFormState((current) => ({ ...current, publicId: event.target.value }))}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && passwordPromptReady) {
-                  event.preventDefault();
-                  submitCurrentMode();
-                }
-              }}
-              placeholder={copy.landing.loginPlaceholder}
-              type="text"
-              value={formState.publicId}
-            />
+        {authStep !== "typing-login" ? (
+          <div className="console-line console-entry-line">
+            <span className="console-prompt">&gt;</span>
+            {authStep === "login-input" ? (
+              <>
+                <input
+                  ref={loginInputRef}
+                  aria-label={copy.landing.loginLabel}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  className="console-inline-input"
+                  onChange={(event) => setCredentials((current) => ({ ...current, publicId: event.target.value }))}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") {
+                      return;
+                    }
+                    event.preventDefault();
+                    if (!credentials.publicId.trim()) {
+                      return;
+                    }
+                    setAuthStep("typing-password");
+                  }}
+                  spellCheck={false}
+                  type="text"
+                  value={credentials.publicId}
+                />
+                <span className="console-caret" />
+              </>
+            ) : (
+              <span className="console-entry-value">{credentials.publicId || copy.landing.loginPlaceholder}</span>
+            )}
           </div>
         ) : null}
 
-        <div className="console-line">
-          <span className="console-prompt">&gt;</span>
-          <span>{typedPrompts[1]}</span>
-          {loginPromptReady && !passwordPromptReady ? <span className="console-caret" /> : null}
-        </div>
-
-        {passwordPromptReady ? (
-          <div className="console-field">
-            <input
-              ref={passwordInputRef}
-              onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitCurrentMode();
-                }
-              }}
-              placeholder={copy.landing.passwordPlaceholder}
-              type="password"
-              value={formState.password}
-            />
+        {authStep === "typing-password" || authStep === "password-input" || Boolean(credentials.password) || isPending ? (
+          <div className="console-line">
+            <span className="console-prompt">&gt;</span>
+            <span>{typedPasswordPrompt}</span>
+            {authStep === "typing-password" ? <span className="console-caret" /> : null}
           </div>
         ) : null}
 
+        {authStep === "password-input" || Boolean(credentials.password) || isPending ? (
+          <div className="console-line console-entry-line">
+            <span className="console-prompt">&gt;</span>
+            {isPending ? (
+              <span className="console-entry-value console-entry-value-masked">{Array.from({ length: credentials.password.length || 8 }, () => "•").join("")}</span>
+            ) : (
+              <>
+                <input
+                  ref={passwordInputRef}
+                  aria-label={copy.landing.passwordLabel}
+                  className="console-inline-input"
+                  onChange={(event) => setCredentials((current) => ({ ...current, password: event.target.value }))}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") {
+                      return;
+                    }
+                    event.preventDefault();
+                    submitCurrentMode();
+                  }}
+                  type="password"
+                  value={credentials.password}
+                />
+                <span className="console-caret" />
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {isPending ? <p className="console-system-line console-system-line-accent">{submitLabel}</p> : null}
         {activeError ? <p className="error console-error">{activeError.message}</p> : null}
-
-        {passwordPromptReady ? (
-          <div className="console-form-actions">
-            <button className="primary-button console-action" disabled={!canSubmit} onClick={submitCurrentMode} type="button">
-              {submitLabel}
-            </button>
-            <button className="ghost-button console-action" disabled={isPending} onClick={backToMenu} type="button">
-              {copy.common.back}
-            </button>
-          </div>
-        ) : null}
       </div>
     );
   };
@@ -363,8 +403,20 @@ export function LandingPage() {
               <span className="console-toolbar-state">{phase === "menu" ? copy.landing.consoleIdle : copy.landing.consoleActive}</span>
             </div>
 
-            <div className="console-screen">
-              <p className="console-banner">{copy.landing.consoleBanner}</p>
+            <div
+              className="console-screen"
+              onClick={() => {
+                if (authStep === "login-input") {
+                  loginInputRef.current?.focus();
+                }
+                if (authStep === "password-input") {
+                  passwordInputRef.current?.focus();
+                }
+              }}
+              role="presentation"
+            >
+              <div className="console-watermark">UNDER OS</div>
+              {phase === "menu" ? <p className="console-banner">{copy.landing.consoleBanner}</p> : null}
               {phase === "menu" ? renderMenu() : renderAuth()}
             </div>
           </section>
