@@ -1,0 +1,16 @@
+.git
+.gitignore
+.venv
+.python-packages
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+node_modules
+dist
+build
+.vite
+postgres-data
+redis-data
+minio-data
+apps/backend/db.sqlite3

@@ -1,0 +1,19 @@
+FROM node:20-alpine AS frontend-build
+
+WORKDIR /app/apps/frontend
+
+COPY apps/frontend/package.json /app/apps/frontend/package.json
+COPY apps/frontend/tsconfig.json /app/apps/frontend/tsconfig.json
+COPY apps/frontend/tsconfig.node.json /app/apps/frontend/tsconfig.node.json
+COPY apps/frontend/vite.config.ts /app/apps/frontend/vite.config.ts
+COPY apps/frontend/index.html /app/apps/frontend/index.html
+COPY apps/frontend/public /app/apps/frontend/public
+COPY apps/frontend/src /app/apps/frontend/src
+
+RUN npm install
+RUN npm run build
+
+FROM nginx:1.27-alpine
+
+COPY infra/nginx/app.prod.conf /etc/nginx/conf.d/default.conf
+COPY --from=frontend-build /app/apps/frontend/dist /usr/share/nginx/html
