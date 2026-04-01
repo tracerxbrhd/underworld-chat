@@ -1,37 +1,87 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import { useMutation } from "@tanstack/react-query";
-import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { loginAccount, registerAccount } from "../shared/api";
 import { LanguageSwitch } from "../shared/LanguageSwitch";
 import { MatrixRain } from "../shared/MatrixRain";
-import { UserGlyph } from "../shared/UserGlyph";
 import { useI18n } from "../shared/i18n";
 import { useSessionStore } from "../shared/session-store";
+
+type LandingPhase = "boot" | "menu" | "auth";
+type AuthMode = "register" | "login";
+
+function resolveAudioContext() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const AudioContextClass = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  return AudioContextClass ? new AudioContextClass() : null;
+}
+
+function playTypingTick(audioContextRef: { current: AudioContext | null }) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!audioContextRef.current) {
+    audioContextRef.current = resolveAudioContext();
+  }
+
+  const context = audioContextRef.current;
+  if (!context) {
+    return;
+  }
+
+  if (context.state === "suspended") {
+    void context.resume();
+  }
+
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = "square";
+  oscillator.frequency.value = 1320 + Math.random() * 120;
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.012, context.currentTime + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.045);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.05);
+}
 
 export function LandingPage() {
   const navigate = useNavigate();
   const { copy, locale } = useI18n();
   const setAuthenticated = useSessionStore((state) => state.setAuthenticated);
-  const authPanelRef = useRef<HTMLElement | null>(null);
-  const [mode, setMode] = useState<"register" | "login">("register");
+  const [phase, setPhase] = useState<LandingPhase>("boot");
+  const [bootProgress, setBootProgress] = useState(0);
+  const [mode, setMode] = useState<AuthMode | null>(null);
+  const [typedPrompts, setTypedPrompts] = useState(["", ""]);
   const [registerForm, setRegisterForm] = useState({
     publicId: "",
-    displayName: "",
     password: "",
   });
   const [loginForm, setLoginForm] = useState({
     publicId: "",
     password: "",
   });
-  const deviceName = `${window.navigator.platform || "Web"} / ${window.navigator.userAgent.slice(0, 48)}`;
+  const loginInputRef = useRef<HTMLInputElement | null>(null);
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const deviceName =
+    typeof window === "undefined"
+      ? "Web device"
+      : `${window.navigator.platform || "Web"} / ${window.navigator.userAgent.slice(0, 48)}`;
 
   const registerMutation = useMutation({
     mutationFn: () =>
       registerAccount(
         {
           public_id: registerForm.publicId.trim().toLowerCase(),
-          display_name: registerForm.displayName.trim(),
+          display_name: registerForm.publicId.trim().toLowerCase(),
           password: registerForm.password,
           device_name: deviceName,
           platform: "web",
@@ -44,6 +94,7 @@ export function LandingPage() {
       navigate("/app");
     },
   });
+
   const loginMutation = useMutation({
     mutationFn: () =>
       loginAccount(
@@ -60,176 +111,265 @@ export function LandingPage() {
       navigate("/app");
     },
   });
+
+  const promptSequence = useMemo(() => [copy.landing.promptLogin, copy.landing.promptPassword], [copy.landing.promptLogin, copy.landing.promptPassword]);
+  const isPending = registerMutation.isPending || loginMutation.isPending;
   const registerError = registerMutation.error as Error | null;
   const loginError = loginMutation.error as Error | null;
-  const isPending = registerMutation.isPending || loginMutation.isPending;
+  const activeError = mode === "register" ? registerError : loginError;
+  const loginPromptReady = typedPrompts[0] === promptSequence[0];
+  const passwordPromptReady = typedPrompts[1] === promptSequence[1];
 
-  const focusAuth = (nextMode: "register" | "login") => {
+  useEffect(() => {
+    if (phase !== "boot") {
+      return;
+    }
+
+    let progress = 0;
+    let bootTimer: number | null = null;
+    const interval = window.setInterval(() => {
+      progress = Math.min(
+        100,
+        progress +
+          (progress < 58 ? Math.floor(Math.random() * 12) + 6 : progress < 88 ? Math.floor(Math.random() * 7) + 3 : 1),
+      );
+      setBootProgress(progress);
+
+      if (progress >= 100) {
+        window.clearInterval(interval);
+        bootTimer = window.setTimeout(() => setPhase("menu"), 420);
+      }
+    }, 90);
+
+    return () => {
+      window.clearInterval(interval);
+      if (bootTimer) {
+        window.clearTimeout(bootTimer);
+      }
+    };
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase !== "auth" || !mode) {
+      return;
+    }
+
+    setTypedPrompts(["", ""]);
+    const timers: number[] = [];
+
+    const typeLine = (lineIndex: number, charIndex: number) => {
+      const line = promptSequence[lineIndex];
+      setTypedPrompts((current) => {
+        const next = [...current];
+        next[lineIndex] = line.slice(0, charIndex);
+        return next;
+      });
+
+      if (charIndex <= line.length) {
+        playTypingTick(audioContextRef);
+      }
+
+      if (charIndex < line.length) {
+        timers.push(window.setTimeout(() => typeLine(lineIndex, charIndex + 1), 26 + Math.floor(Math.random() * 24)));
+        return;
+      }
+
+      if (lineIndex + 1 < promptSequence.length) {
+        timers.push(window.setTimeout(() => typeLine(lineIndex + 1, 1), 240));
+      }
+    };
+
+    timers.push(window.setTimeout(() => typeLine(0, 1), 160));
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [phase, mode, promptSequence]);
+
+  useEffect(() => {
+    if (phase === "auth" && loginPromptReady) {
+      loginInputRef.current?.focus();
+    }
+  }, [phase, loginPromptReady]);
+
+  useEffect(() => {
+    if (phase === "auth" && passwordPromptReady) {
+      passwordInputRef.current?.focus();
+    }
+  }, [phase, passwordPromptReady]);
+
+  const startAuth = (nextMode: AuthMode) => {
+    registerMutation.reset();
+    loginMutation.reset();
     setMode(nextMode);
-    authPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setPhase("auth");
+    if (audioContextRef.current?.state === "suspended") {
+      void audioContextRef.current.resume();
+    }
+  };
+
+  const backToMenu = () => {
+    registerMutation.reset();
+    loginMutation.reset();
+    setMode(null);
+    setTypedPrompts(["", ""]);
+    setPhase("menu");
   };
 
   const submitCurrentMode = () => {
-    if (isPending) {
+    if (isPending || !mode) {
       return;
     }
+
+    const currentForm = mode === "register" ? registerForm : loginForm;
+    if (!currentForm.publicId.trim() || !currentForm.password) {
+      return;
+    }
+
     if (mode === "register") {
       registerMutation.mutate();
       return;
     }
+
     loginMutation.mutate();
   };
 
-  return (
-    <section className="landing-page">
-      <MatrixRain />
-
-      <header className="landing-header">
-        <div className="brand-lockup">
-          <p className="eyebrow">{copy.landing.badge}</p>
-          <h1>{copy.common.appName}</h1>
+  const renderBoot = () => (
+    <div className="boot-shell">
+      <div className="boot-core">
+        <div className="boot-logo">UNDER OS</div>
+        <p className="boot-status">{copy.landing.bootStatus}</p>
+        <div className="boot-progress-track">
+          <div className="boot-progress-bar" style={{ width: `${bootProgress}%` }} />
         </div>
-
-        <div className="header-actions">
-          <LanguageSwitch />
-          <button
-            aria-label={copy.landing.topButton}
-            className="icon-button"
-            onClick={() => focusAuth("login")}
-            type="button"
-          >
-            <UserGlyph className="user-glyph" />
-          </button>
-        </div>
-      </header>
-
-      <div className="landing-grid">
-        <section className="landing-hero">
-          <p className="eyebrow">{copy.landing.matrix}</p>
-          <h2>{copy.landing.title}</h2>
-          <p className="landing-copy">{copy.landing.subtitle}</p>
-
-          <div className="cta-row">
-            <button className="primary-button" onClick={() => focusAuth("register")} type="button">
-              {copy.landing.primaryCta}
-            </button>
-            <a className="ghost-link" href="#landing-details">
-              {copy.landing.secondaryCta}
-            </a>
-          </div>
-
-          <p className="landing-footnote">{copy.landing.attribution}</p>
-        </section>
-
-        <aside className="landing-side" id="landing-details">
-          <article className="panel panel-compact auth-card" ref={authPanelRef}>
-            <div className="auth-tabs">
-              <button
-                className={mode === "register" ? "language-button active" : "language-button"}
-                onClick={() => setMode("register")}
-                type="button"
-              >
-                {copy.landing.registerTab}
-              </button>
-              <button
-                className={mode === "login" ? "language-button active" : "language-button"}
-                onClick={() => setMode("login")}
-                type="button"
-              >
-                {copy.landing.loginTab}
-              </button>
-            </div>
-
-            <div className="auth-form">
-              <label className="field">
-                <span>{copy.landing.loginLabel}</span>
-                <input
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (mode === "register") {
-                      setRegisterForm((current) => ({ ...current, publicId: value }));
-                      return;
-                    }
-                    setLoginForm((current) => ({ ...current, publicId: value }));
-                  }}
-                  placeholder={copy.landing.loginPlaceholder}
-                  type="text"
-                  value={mode === "register" ? registerForm.publicId : loginForm.publicId}
-                />
-              </label>
-
-              {mode === "register" ? (
-                <label className="field">
-                  <span>{copy.landing.displayNameLabel}</span>
-                  <input
-                    onChange={(event) =>
-                      setRegisterForm((current) => ({ ...current, displayName: event.target.value }))
-                    }
-                    placeholder={copy.landing.displayNamePlaceholder}
-                    type="text"
-                    value={registerForm.displayName}
-                  />
-                </label>
-              ) : null}
-
-              <label className="field">
-                <span>{copy.landing.passwordLabel}</span>
-                <input
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (mode === "register") {
-                      setRegisterForm((current) => ({ ...current, password: value }));
-                      return;
-                    }
-                    setLoginForm((current) => ({ ...current, password: value }));
-                  }}
-                  placeholder={copy.landing.passwordPlaceholder}
-                  type="password"
-                  value={mode === "register" ? registerForm.password : loginForm.password}
-                />
-              </label>
-
-              <p className="muted auth-hint">
-                {mode === "register" ? copy.landing.registerHint : copy.landing.loginHint}
-              </p>
-
-              {mode === "register" && registerError ? <p className="error">{registerError.message}</p> : null}
-              {mode === "login" && loginError ? <p className="error">{loginError.message}</p> : null}
-
-              <button className="primary-button auth-submit" disabled={isPending} onClick={submitCurrentMode} type="button">
-                {mode === "register"
-                  ? registerMutation.isPending
-                    ? copy.landing.creating
-                    : copy.common.register
-                  : loginMutation.isPending
-                    ? copy.landing.signingIn
-                    : copy.common.signIn}
-              </button>
-            </div>
-          </article>
-
-          <article className="panel panel-compact">
-            <h3>{copy.landing.featureTitle}</h3>
-            <ul className="plain-list">
-              <li>{copy.landing.feature1}</li>
-              <li>{copy.landing.feature2}</li>
-              <li>{copy.landing.feature3}</li>
-              <li>{copy.landing.feature4}</li>
-            </ul>
-          </article>
-
-          <article className="panel panel-compact">
-            <h3>{copy.landing.panelTitle}</h3>
-            <ul className="plain-list">
-              <li>{copy.landing.panel1}</li>
-              <li>{copy.landing.panel2}</li>
-              <li>{copy.landing.panel3}</li>
-            </ul>
-          </article>
-        </aside>
+        <p className="boot-stage">
+          {copy.landing.bootStage} {String(bootProgress).padStart(3, "0")}%
+        </p>
       </div>
+    </div>
+  );
+
+  const renderMenu = () => (
+    <div className="console-stack">
+      <p className="console-system-line">{copy.landing.menuLead}</p>
+      <div className="console-actions">
+        <button className="console-action primary-button" onClick={() => startAuth("login")} type="button">
+          {copy.common.signIn}
+        </button>
+        <button className="console-action ghost-button" onClick={() => startAuth("register")} type="button">
+          {copy.landing.createProfile}
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderAuth = () => {
+    const formState = mode === "register" ? registerForm : loginForm;
+    const setFormState = mode === "register" ? setRegisterForm : setLoginForm;
+    const canSubmit = Boolean(formState.publicId.trim() && formState.password && !isPending);
+    const submitLabel =
+      mode === "register"
+        ? registerMutation.isPending
+          ? copy.landing.creating
+          : copy.landing.createProfile
+        : loginMutation.isPending
+          ? copy.landing.signingIn
+          : copy.common.signIn;
+
+    return (
+      <div className="console-stack">
+        <p className="console-system-line">{mode === "register" ? copy.landing.createProfileMode : copy.landing.loginMode}</p>
+
+        <div className="console-line">
+          <span className="console-prompt">&gt;</span>
+          <span>{typedPrompts[0]}</span>
+          {!loginPromptReady ? <span className="console-caret" /> : null}
+        </div>
+
+        {loginPromptReady ? (
+          <div className="console-field">
+            <input
+              ref={loginInputRef}
+              autoCapitalize="none"
+              autoCorrect="off"
+              onChange={(event) => setFormState((current) => ({ ...current, publicId: event.target.value }))}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && passwordPromptReady) {
+                  event.preventDefault();
+                  submitCurrentMode();
+                }
+              }}
+              placeholder={copy.landing.loginPlaceholder}
+              type="text"
+              value={formState.publicId}
+            />
+          </div>
+        ) : null}
+
+        <div className="console-line">
+          <span className="console-prompt">&gt;</span>
+          <span>{typedPrompts[1]}</span>
+          {loginPromptReady && !passwordPromptReady ? <span className="console-caret" /> : null}
+        </div>
+
+        {passwordPromptReady ? (
+          <div className="console-field">
+            <input
+              ref={passwordInputRef}
+              onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitCurrentMode();
+                }
+              }}
+              placeholder={copy.landing.passwordPlaceholder}
+              type="password"
+              value={formState.password}
+            />
+          </div>
+        ) : null}
+
+        {activeError ? <p className="error console-error">{activeError.message}</p> : null}
+
+        {passwordPromptReady ? (
+          <div className="console-form-actions">
+            <button className="primary-button console-action" disabled={!canSubmit} onClick={submitCurrentMode} type="button">
+              {submitLabel}
+            </button>
+            <button className="ghost-button console-action" disabled={isPending} onClick={backToMenu} type="button">
+              {copy.common.back}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  return (
+    <section className="landing-page landing-console-page">
+      <MatrixRain />
+      <div className="landing-corner">
+        <LanguageSwitch />
+      </div>
+
+      {phase === "boot" ? (
+        renderBoot()
+      ) : (
+        <div className="console-shell">
+          <section className="console-window">
+            <div className="console-toolbar">
+              <span className="console-toolbar-brand">UNDER OS</span>
+              <span className="console-toolbar-state">{phase === "menu" ? copy.landing.consoleIdle : copy.landing.consoleActive}</span>
+            </div>
+
+            <div className="console-screen">
+              <p className="console-banner">{copy.landing.consoleBanner}</p>
+              {phase === "menu" ? renderMenu() : renderAuth()}
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

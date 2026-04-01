@@ -1,3 +1,4 @@
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -6,6 +7,7 @@ from rest_framework.views import APIView
 from apps.chats.models import Chat
 from apps.messages.models import Message, MessageReceipt, MessageVersion
 from apps.messages.serializers import MessageCreateSerializer, MessageSerializer
+from apps.presence.services import emit_user_event
 
 
 class MessageListCreateView(APIView):
@@ -21,7 +23,12 @@ class MessageListCreateView(APIView):
         return Response(serializer.data)
 
     def post(self, request, chat_id):
-        chat = Chat.objects.filter(id=chat_id, memberships__user=request.user).distinct().first()
+        chat = (
+            Chat.objects.filter(id=chat_id, memberships__user=request.user)
+            .prefetch_related(Prefetch("memberships"))
+            .distinct()
+            .first()
+        )
         if not chat:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
@@ -42,6 +49,17 @@ class MessageListCreateView(APIView):
                 "read_at": message.created_at,
             },
         )
+        for membership in chat.memberships.all():
+            emit_user_event(
+                user_id=membership.user_id,
+                event={
+                    "type": "message.new",
+                    "chat_id": str(chat.id),
+                    "message_id": str(message.id),
+                    "sender_public_id": request.user.public_id,
+                    "created_at": message.created_at.isoformat(),
+                },
+            )
         return Response(
             MessageSerializer(message, context={"request": request}).data,
             status=status.HTTP_201_CREATED,

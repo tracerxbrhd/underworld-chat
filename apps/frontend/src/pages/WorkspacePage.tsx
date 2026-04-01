@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -8,6 +8,7 @@ import {
   fetchChats,
   fetchMe,
   fetchMessages,
+  fetchUserProfile,
   logoutRequest,
   searchChats,
   sendMessage,
@@ -18,6 +19,7 @@ import { ProfileDrawer } from "../shared/ProfileDrawer";
 import { UserGlyph } from "../shared/UserGlyph";
 import { useI18n } from "../shared/i18n";
 import { useSessionStore } from "../shared/session-store";
+import { buildPresenceUrl, playNotificationTone } from "../shared/ws";
 
 function sortChats(chats: ChatPayload[]): ChatPayload[] {
   return [...chats].sort((left, right) => {
@@ -39,10 +41,14 @@ export function WorkspacePage() {
   const { copy, locale } = useI18n();
   const { accessToken, clearAuth, notesChannelId, profile, setNotesChannelId, setProfile } = useSessionStore();
   const [isProfileOpen, setProfileOpen] = useState(false);
+  const [peerProfileId, setPeerProfileId] = useState<string | null>(null);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(notesChannelId);
   const [draftMessage, setDraftMessage] = useState("");
   const [searchValue, setSearchValue] = useState("");
   const deferredSearchValue = useDeferredValue(searchValue.trim());
+  const messagesColumnRef = useRef<HTMLDivElement | null>(null);
+  const selectedChatIdRef = useRef<string | null>(selectedChatId);
+  const currentPublicIdRef = useRef<string | null>(null);
 
   const meQuery = useQuery({
     queryKey: ["me", locale, accessToken],
@@ -71,10 +77,19 @@ export function WorkspacePage() {
     queryFn: () => searchChats(accessToken!, locale, deferredSearchValue),
     enabled: Boolean(accessToken && deferredSearchValue),
   });
+  const peerProfileQuery = useQuery({
+    queryKey: ["user-profile", locale, accessToken, peerProfileId],
+    queryFn: () => fetchUserProfile(accessToken!, locale, peerProfileId!),
+    enabled: Boolean(accessToken && peerProfileId),
+  });
   const meError = meQuery.error as Error | null;
   const chatsError = chatsQuery.error as Error | null;
   const messagesError = messagesQuery.error as Error | null;
   const searchError = searchQuery.error as Error | null;
+
+  useEffect(() => {
+    selectedChatIdRef.current = selectedChatId;
+  }, [selectedChatId]);
 
   useEffect(() => {
     if (meError?.message === "Invalid or expired access token.") {
@@ -179,9 +194,68 @@ export function WorkspacePage() {
   const createChatError = createChatMutation.error as Error | null;
 
   const currentProfile = profile ?? meQuery.data?.profile ?? null;
+  const currentPublicId = currentProfile?.public_id ?? meQuery.data?.user.public_id ?? null;
   const isSearching = deferredSearchValue.length > 0;
   const orderedChats = useMemo(() => sortChats(chatsQuery.data ?? []), [chatsQuery.data]);
   const visibleChats = isSearching ? sortChats(searchQuery.data?.chats ?? []) : orderedChats;
+  const peerMember = useMemo(() => {
+    if (!selectedChat || selectedChat.is_personal_notes || !currentPublicId) {
+      return null;
+    }
+    return selectedChat.members.find((member) => member.public_id !== currentPublicId) ?? null;
+  }, [currentPublicId, selectedChat]);
+
+  useEffect(() => {
+    currentPublicIdRef.current = currentPublicId;
+  }, [currentPublicId]);
+
+  useEffect(() => {
+    const node = messagesColumnRef.current;
+    if (!node) {
+      return;
+    }
+    node.scrollTop = node.scrollHeight;
+  }, [messagesQuery.data?.length, selectedChatId]);
+
+  useEffect(() => {
+    if (!accessToken) {
+      return;
+    }
+
+    const socket = new WebSocket(buildPresenceUrl(accessToken));
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as {
+          type?: string;
+          chat_id?: string;
+          sender_public_id?: string;
+        };
+
+        if (payload.type !== "message.new" || !payload.chat_id) {
+          return;
+        }
+
+        void queryClient.invalidateQueries({ queryKey: ["chats", locale, accessToken] });
+        if (selectedChatIdRef.current === payload.chat_id) {
+          void queryClient.invalidateQueries({ queryKey: ["messages", locale, accessToken, payload.chat_id] });
+        }
+
+        if (
+          payload.sender_public_id &&
+          payload.sender_public_id !== currentPublicIdRef.current &&
+          (payload.chat_id !== selectedChatIdRef.current || document.visibilityState === "hidden")
+        ) {
+          playNotificationTone();
+        }
+      } catch {
+        // Ignore malformed websocket events and keep the socket alive.
+      }
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [accessToken, locale, queryClient]);
 
   return (
     <section className="workspace-page">
@@ -290,11 +364,16 @@ export function WorkspacePage() {
                 </div>
 
                 <div className="chat-header-side">
+                  {peerMember ? (
+                    <button className="ghost-button" onClick={() => setPeerProfileId(peerMember.public_id)} type="button">
+                      {copy.common.profile}
+                    </button>
+                  ) : null}
                   <span className="status-pill authenticated">{copy.workspace.healthValue}</span>
                 </div>
               </div>
 
-              <div className="messages-column">
+              <div className="messages-column" ref={messagesColumnRef}>
                 {messagesQuery.isLoading ? <p className="muted">{copy.workspace.messagesLoading}</p> : null}
                 {messagesError ? <p className="error">{messagesError.message}</p> : null}
                 {messagesQuery.data?.map((message) => {
@@ -318,6 +397,16 @@ export function WorkspacePage() {
               <footer className="composer-bar">
                 <input
                   onChange={(event) => setDraftMessage(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" || (event.nativeEvent as KeyboardEvent).isComposing) {
+                      return;
+                    }
+                    event.preventDefault();
+                    if (!draftMessage.trim() || sendMutation.isPending) {
+                      return;
+                    }
+                    sendMutation.mutate();
+                  }}
                   placeholder={copy.workspace.composerPlaceholder}
                   type="text"
                   value={draftMessage}
@@ -346,6 +435,8 @@ export function WorkspacePage() {
         <ProfileDrawer
           isOpen={isProfileOpen}
           onClose={() => setProfileOpen(false)}
+          editable
+          title={copy.workspace.profileTitle}
           onLogout={() => logoutMutation.mutate()}
           isLoggingOut={logoutMutation.isPending}
           onSave={async (payload) => {
@@ -353,6 +444,24 @@ export function WorkspacePage() {
           }}
           profile={currentProfile}
         />
+      ) : null}
+
+      {peerProfileId ? (
+        peerProfileQuery.data ? (
+          <ProfileDrawer
+            isOpen={Boolean(peerProfileId)}
+            onClose={() => setPeerProfileId(null)}
+            title={peerProfileQuery.data.display_name}
+            profile={peerProfileQuery.data}
+          />
+        ) : (
+          <div className="drawer-backdrop" onClick={() => setPeerProfileId(null)} role="presentation">
+            <section className="profile-modal profile-modal-loading" onClick={(event) => event.stopPropagation()} role="dialog">
+              <p className="eyebrow">{copy.common.profile}</p>
+              {peerProfileQuery.isLoading ? <p>{copy.common.loading}</p> : <p className="error">{(peerProfileQuery.error as Error | null)?.message ?? copy.common.errorFallback}</p>}
+            </section>
+          </div>
+        )
       ) : null}
     </section>
   );

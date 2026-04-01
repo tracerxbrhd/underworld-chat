@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { ProfilePayload } from "./api";
+import type { ProfilePayload, PublicProfilePayload } from "./api";
 import { useI18n } from "./i18n";
 
 const fallbackAvatar =
@@ -9,15 +9,26 @@ const fallbackAvatar =
 type ProfileDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
-  onLogout: () => void;
-  isLoggingOut: boolean;
-  onSave: (payload: Partial<ProfilePayload>) => Promise<unknown> | unknown;
-  profile: ProfilePayload;
+  onLogout?: () => void;
+  isLoggingOut?: boolean;
+  onSave?: (payload: Partial<ProfilePayload>) => Promise<unknown> | unknown;
+  profile: ProfilePayload | PublicProfilePayload;
+  editable?: boolean;
+  title?: string;
 };
 
-export function ProfileDrawer({ isOpen, onClose, onLogout, isLoggingOut, onSave, profile }: ProfileDrawerProps) {
+export function ProfileDrawer({
+  isOpen,
+  onClose,
+  onLogout,
+  isLoggingOut = false,
+  onSave,
+  profile,
+  editable = false,
+  title,
+}: ProfileDrawerProps) {
   const { copy } = useI18n();
-  const [form, setForm] = useState(profile);
+  const [form, setForm] = useState<ProfilePayload | PublicProfilePayload>(profile);
   const [isSaving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -30,64 +41,87 @@ export function ProfileDrawer({ isOpen, onClose, onLogout, isLoggingOut, onSave,
 
   return (
     <div className="drawer-backdrop" onClick={onClose} role="presentation">
-      <aside
+      <section
         aria-labelledby="profile-drawer-title"
         aria-modal="true"
-        className="profile-drawer"
+        className="profile-modal"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
         <div className="drawer-header">
           <div>
             <p className="eyebrow">{copy.workspace.shellTag}</p>
-            <h2 id="profile-drawer-title">{copy.workspace.profileTitle}</h2>
+            <h2 id="profile-drawer-title">{title ?? (editable ? copy.workspace.profileTitle : copy.common.profile)}</h2>
           </div>
           <button className="ghost-button" onClick={onClose} type="button">
             {copy.common.close}
           </button>
         </div>
 
-        <label className="field">
-          <span>{copy.workspace.avatarLabel}</span>
-          <input
-            type="url"
-            value={form.avatar}
-            onChange={(event) => setForm({ ...form, avatar: event.target.value })}
-          />
-        </label>
+        {editable ? (
+          <>
+            <label className="field">
+              <span>{copy.workspace.avatarLabel}</span>
+              <input
+                type="url"
+                value={form.avatar}
+                onChange={(event) => setForm({ ...form, avatar: event.target.value })}
+              />
+            </label>
 
-        <label className="field">
-          <span>{copy.workspace.nameLabel}</span>
-          <input
-            type="text"
-            value={form.display_name}
-            onChange={(event) => setForm({ ...form, display_name: event.target.value })}
-          />
-        </label>
+            <label className="field">
+              <span>{copy.workspace.nameLabel}</span>
+              <input
+                type="text"
+                value={form.display_name}
+                onChange={(event) => setForm({ ...form, display_name: event.target.value })}
+              />
+            </label>
 
-        <label className="field">
-          <span>{copy.workspace.bioLabel}</span>
-          <textarea
-            rows={4}
-            value={form.bio}
-            onChange={(event) => setForm({ ...form, bio: event.target.value })}
-          />
-        </label>
+            <label className="field">
+              <span>{copy.workspace.bioLabel}</span>
+              <textarea
+                rows={4}
+                value={form.bio}
+                onChange={(event) => setForm({ ...form, bio: event.target.value })}
+              />
+            </label>
 
-        <label className="field">
-          <span>{copy.workspace.birthDateLabel}</span>
-          <input
-            type="date"
-            value={form.birth_date ?? ""}
-            onChange={(event) => setForm({ ...form, birth_date: event.target.value })}
-          />
-        </label>
+            <label className="field">
+              <span>{copy.workspace.birthDateLabel}</span>
+              <input
+                type="date"
+                value={form.birth_date ?? ""}
+                onChange={(event) => setForm({ ...form, birth_date: event.target.value })}
+              />
+            </label>
 
-        <label className="field">
-          <span>{copy.workspace.immutableLogin}</span>
-          <input readOnly type="text" value={form.public_id} />
-          <small>{copy.workspace.immutableLoginHint}</small>
-        </label>
+            <label className="field">
+              <span>{copy.workspace.immutableLogin}</span>
+              <input readOnly type="text" value={form.public_id} />
+              <small>{copy.workspace.immutableLoginHint}</small>
+            </label>
+          </>
+        ) : (
+          <div className="profile-facts">
+            <div className="profile-fact">
+              <span>{copy.workspace.immutableLogin}</span>
+              <strong>@{form.public_id}</strong>
+            </div>
+            <div className="profile-fact">
+              <span>{copy.workspace.nameLabel}</span>
+              <strong>{form.display_name}</strong>
+            </div>
+            <div className="profile-fact">
+              <span>{copy.workspace.birthDateLabel}</span>
+              <strong>{form.birth_date || "—"}</strong>
+            </div>
+            <div className="profile-fact profile-fact-wide">
+              <span>{copy.workspace.bioLabel}</span>
+              <p>{form.bio || "—"}</p>
+            </div>
+          </div>
+        )}
 
         <section className="drawer-preview">
           <p className="eyebrow">{copy.workspace.previewTitle}</p>
@@ -101,30 +135,35 @@ export function ProfileDrawer({ isOpen, onClose, onLogout, isLoggingOut, onSave,
           </div>
         </section>
 
-        <div className="drawer-actions">
-          <p className="muted">{copy.workspace.profileSaved}</p>
-          <div className="drawer-actions-row">
-            <button className="ghost-button" disabled={isLoggingOut} onClick={onLogout} type="button">
-              {isLoggingOut ? copy.common.loading : copy.common.logout}
-            </button>
-            <button
-              className="primary-button"
-              onClick={async () => {
-                setSaving(true);
-                try {
-                  await Promise.resolve(onSave(form));
-                  onClose();
-                } finally {
-                  setSaving(false);
-                }
-              }}
-              type="button"
-            >
-              {isSaving ? copy.common.loading : copy.common.save}
-            </button>
+        {editable ? (
+          <div className="drawer-actions">
+            <p className="muted">{copy.workspace.profileSaved}</p>
+            <div className="drawer-actions-row">
+              <button className="ghost-button" disabled={isLoggingOut} onClick={onLogout} type="button">
+                {isLoggingOut ? copy.common.loading : copy.common.logout}
+              </button>
+              <button
+                className="primary-button"
+                onClick={async () => {
+                  if (!onSave) {
+                    return;
+                  }
+                  setSaving(true);
+                  try {
+                    await Promise.resolve(onSave(form as Partial<ProfilePayload>));
+                    onClose();
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+                type="button"
+              >
+                {isSaving ? copy.common.loading : copy.common.save}
+              </button>
+            </div>
           </div>
-        </div>
-      </aside>
+        ) : null}
+      </section>
     </div>
   );
 }

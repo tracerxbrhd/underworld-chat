@@ -19,6 +19,14 @@ export type ProfilePayload = {
   profile_visibility: string;
 };
 
+export type PublicProfilePayload = {
+  public_id: string;
+  display_name: string;
+  avatar: string;
+  bio: string;
+  birth_date: string | null;
+};
+
 export type AuthUserPayload = {
   id: string;
   public_id: string;
@@ -181,6 +189,17 @@ export async function updateProfile(
     body: JSON.stringify(payload),
   });
   return parseJson<ProfilePayload>(response);
+}
+
+export async function fetchUserProfile(
+  token: string,
+  locale: "en" | "ru",
+  publicId: string,
+): Promise<PublicProfilePayload> {
+  const response = await fetch(`${API_BASE_URL}/users/${encodeURIComponent(publicId)}`, {
+    headers: buildHeaders(locale, token),
+  });
+  return parseJson<PublicProfilePayload>(response);
 }
 
 export async function fetchChats(token: string, locale: "en" | "ru"): Promise<ChatPayload[]> {

@@ -42,3 +42,18 @@ class CompactUserSerializer(serializers.ModelSerializer):
         model = User
         fields = ("id", "public_id", "display_name", "avatar")
 
+
+class PublicUserProfileSerializer(serializers.ModelSerializer):
+    public_id = serializers.CharField(source="user.public_id", read_only=True)
+    display_name = serializers.CharField(source="user.display_name", read_only=True)
+    avatar = serializers.URLField(source="user.avatar", read_only=True)
+
+    class Meta:
+        model = UserProfile
+        fields = (
+            "public_id",
+            "display_name",
+            "avatar",
+            "bio",
+            "birth_date",
+        )
